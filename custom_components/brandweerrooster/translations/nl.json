@@ -11,12 +11,11 @@
       },
       "scope": {
         "title": "Kazerne en incidenten",
-        "description": "Kies de kazernegroep en eventueel extra groepen of taken die als relevant voor incidenten gelden.",
+        "description": "Kies de kazernegroep en eventueel extra groepen of taken die als relevant voor incidenten gelden. Incidenten worden ontvangen via de officiële FireServiceRota-integratie; de Brandweerrooster API wordt alleen bevraagd wanneer een nieuw incident wordt gedetecteerd.",
         "data": {
           "station_group_id": "Kazerne / hoofdgroep",
           "monitored_group_ids": "Extra groepen volgen",
           "monitored_task_ids": "Extra taken volgen",
-          "scan_interval": "Verversingsinterval (seconden)",
           "person_name": "Jouw naam (voor persoonlijke uitrukstatistieken)"
         }
       }
@@ -25,7 +24,8 @@
       "cannot_connect": "Kan geen verbinding maken met Brandweerrooster.",
       "invalid_auth": "De Brandweerrooster-inloggegevens zijn niet geldig.",
       "api_error": "Brandweerrooster gaf een API-fout terug.",
-      "unknown": "Er is een onverwachte fout opgetreden."
+      "unknown": "Er is een onverwachte fout opgetreden.",
+      "rate_limited": "Brandweerrooster heeft tijdelijk te veel API-verzoeken ontvangen. Wacht even en probeer het opnieuw."
     },
     "abort": {
       "already_configured": "Dit Brandweerrooster-account is al geconfigureerd."

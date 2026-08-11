@@ -23,6 +23,14 @@ class BrandweerRoosterConnectionError(BrandweerRoosterApiError):
     """Connection to the API failed."""
 
 
+class BrandweerRoosterRateLimitError(BrandweerRoosterApiError):
+    """The API is temporarily rate limiting requests."""
+
+    def __init__(self, message: str, retry_after: int | None = None) -> None:
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 class BrandweerRoosterApi:
     """Small, dependency-free client for Brandweerrooster API v2."""
 
@@ -117,6 +125,21 @@ class BrandweerRoosterApi:
                     return await self.async_get(endpoint, params, retry_auth=False)
 
                 payload = await self._read_response(response)
+                if response.status == 429:
+                    retry_after: int | None = None
+                    retry_header = response.headers.get("Retry-After")
+                    if retry_header:
+                        try:
+                            retry_after = max(1, int(retry_header))
+                        except ValueError:
+                            retry_after = None
+                    raise BrandweerRoosterRateLimitError(
+                        self._extract_error(
+                            payload,
+                            "Brandweerrooster rate-limit bereikt; probeer het later opnieuw.",
+                        ),
+                        retry_after,
+                    )
                 if response.status < 200 or response.status >= 300:
                     raise BrandweerRoosterApiError(self._extract_error(payload, f"Brandweerrooster API-fout HTTP {response.status}"))
                 return payload

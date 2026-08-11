@@ -11,9 +11,6 @@ from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.data_entry_flow import FlowResult
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
-    NumberSelector,
-    NumberSelectorConfig,
-    NumberSelectorMode,
     SelectSelector,
     SelectSelectorConfig,
     SelectSelectorMode,
@@ -24,17 +21,14 @@ from .api import (
     BrandweerRoosterApiError,
     BrandweerRoosterAuthenticationError,
     BrandweerRoosterConnectionError,
+    BrandweerRoosterRateLimitError,
 )
 from .const import (
     CONF_MONITORED_GROUP_IDS,
     CONF_MONITORED_TASK_IDS,
     CONF_PERSON_NAME,
-    CONF_SCAN_INTERVAL,
     CONF_STATION_GROUP_ID,
-    DEFAULT_SCAN_INTERVAL,
     DOMAIN,
-    MAX_SCAN_INTERVAL,
-    MIN_SCAN_INTERVAL,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -71,6 +65,8 @@ class BrandweerroosterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 errors["base"] = "invalid_auth"
             except BrandweerRoosterConnectionError:
                 errors["base"] = "cannot_connect"
+            except BrandweerRoosterRateLimitError:
+                errors["base"] = "rate_limited"
             except BrandweerRoosterApiError:
                 errors["base"] = "api_error"
             except Exception:
@@ -99,7 +95,6 @@ class BrandweerroosterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     CONF_STATION_GROUP_ID: station,
                     CONF_MONITORED_GROUP_IDS: monitored_groups,
                     CONF_MONITORED_TASK_IDS: monitored_tasks,
-                    CONF_SCAN_INTERVAL: int(user_input.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL)),
                     CONF_PERSON_NAME: str(user_input.get(CONF_PERSON_NAME, "")).strip(),
                 },
             )
@@ -128,9 +123,6 @@ class BrandweerroosterConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 ),
                 vol.Optional(CONF_MONITORED_TASK_IDS, default=[]): SelectSelector(
                     SelectSelectorConfig(options=task_options, multiple=True, mode=SelectSelectorMode.DROPDOWN)
-                ),
-                vol.Optional(CONF_SCAN_INTERVAL, default=DEFAULT_SCAN_INTERVAL): NumberSelector(
-                    NumberSelectorConfig(min=MIN_SCAN_INTERVAL, max=MAX_SCAN_INTERVAL, step=1, mode=NumberSelectorMode.BOX)
                 ),
             }
         )

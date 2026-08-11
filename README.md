@@ -1,6 +1,14 @@
-## 1.1.2
+## 1.1.3
 
-Fix compatibility with current Home Assistant time handling (`dt_util.now()`).
+### Changes
+
+- Removed periodic incident polling from the Brandweerrooster API.
+- The integration now listens to the official FireServiceRota `sensor.incidents` entity and requests incident details only when a new incident ID is detected.
+- Added throttled, one-time historical synchronization for personal turnout statistics. The history sync runs in the background and resumes from its last completed page after a restart.
+- Added handling for HTTP 429/rate-limit responses.
+- Removed the polling interval from the setup screen because incident updates are event-driven.
+- Kept FireServiceRota responsible for live availability and accepting/declining alarms.
+
 
 # Brandweerrooster API for Home Assistant
 
@@ -76,9 +84,21 @@ The following sensors are created:
 - **Uitrukken totaal**: same definition over the known incident history.
 - **Opgekomen, niet ingedeeld**: the user positively responded but does not appear in the assigned personnel list.
 
-The month and year counters are calculated from incident dates, so they automatically roll over at the start of a new month/year and do not depend on Home Assistant restarts. Statistics are stored locally in Home Assistant.
+The month and year counters are calculated from incident dates, so they automatically roll over at the start of a new month/year and do not depend on Home Assistant restarts. Statistics are stored locally in Home Assistant. On first setup, the integration performs a one-time historical synchronization in the background; it does not continuously poll the incident API.
 
 The integration treats `acknowledged` (the response state used by FireServiceRota when accepting an alarm), `dispatched`, `responded`, `accepted`, `coming`, `on_the_way` and `arrived` as positive response states, with explicit decline/no-show states treated as negative.
+
+## Incident updates and API usage
+
+This integration intentionally does not poll the Brandweerrooster incident endpoint on a timer. The official FireServiceRota Home Assistant integration is the source for the live incident trigger.
+
+The integration listens to:
+
+- `sensor.incidents` — the incident ID is used to detect a new incident.
+
+When the incident ID changes, the integration requests the corresponding Brandweerrooster incident details and stores the relevant data locally. This keeps API usage low and avoids unnecessary polling.
+
+A one-time background history synchronization is used to build the personal lifetime/month/year statistics. This synchronization is throttled and persisted so it can resume after a restart.
 
 ## Facebook dispatch message
 
@@ -90,7 +110,7 @@ Brandweerrooster documents API v2 at:
 
 https://www.brandweerrooster.nl/apidocs/
 
-The API supports OAuth2, incidents, incident responses, groups, tasks, users, memberships and skills.
+The API supports OAuth2, incidents, incident responses, groups, tasks, users, memberships and skills. Normal incident processing is event-driven through FireServiceRota; the API is only queried for the newly detected incident and for the one-time historical statistics synchronization.
 
 ## Security
 
