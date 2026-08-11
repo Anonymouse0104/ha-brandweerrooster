@@ -55,9 +55,16 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_setup(self) -> None:
-        """Load persistent state and user data once during setup."""
+        """Load persistent state, user data and station labels once during setup."""
         await self.statistics.async_load()
         self._current_user = await self.api.async_get_current_user()
+        # Load the selected station group before the first incident lookup.
+        # The selected group name is used for the generic station name in
+        # generated dispatch/Facebook messages.
+        try:
+            await self._async_ensure_reference_data()
+        except BrandweerRoosterApiError as err:
+            _LOGGER.warning("Kon Brandweerrooster groepsinformatie niet laden: %s", err)
 
     async def _async_update_data(self) -> dict[str, Any]:
         """Build initial data from the current FireServiceRota incident only."""
@@ -128,8 +135,29 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         try:
             incident = await self.api.async_get_incident(incident_id)
         except BrandweerRoosterApiError as err:
-            _LOGGER.warning("Huidig FireServiceRota-incident %s kon niet worden opgehaald: %s", incident_id, err)
-            return None
+            # FireServiceRota already contains the complete live alert text.
+            # If Brandweerrooster is temporarily rate-limited, keep the
+            # current incident visible instead of replacing it with
+            # "Geen uitruk". Vehicle codes can also be extracted from this
+            # fallback body by the sensor layer.
+            _LOGGER.warning(
+                "Huidig FireServiceRota-incident %s kon niet via de API worden opgehaald: %s; gebruik lokale incidentgegevens",
+                incident_id,
+                err,
+            )
+            if state is None:
+                return None
+            incident = {
+                "id": incident_id,
+                "body": str(state.state or ""),
+                "location": str(state.state or ""),
+                "prio": state.attributes.get("prio"),
+                "type": state.attributes.get("type"),
+                "created_at": state.attributes.get("created_at") or state.attributes.get("start_time"),
+                "start_time": state.attributes.get("start_time") or state.attributes.get("created_at"),
+                "group_ids": state.attributes.get("group_ids") or state.attributes.get("groups") or ([self.station_group_id] if self.station_group_id else []),
+                "task_ids": state.attributes.get("task_ids") or [],
+            }
         if not self._is_relevant(incident):
             return None
         await self._async_ensure_reference_data()

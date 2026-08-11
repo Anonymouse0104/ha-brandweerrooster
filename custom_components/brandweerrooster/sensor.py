@@ -445,11 +445,14 @@ def _format_priority(value: Any) -> str:
 
 
 def _station_display_name(title: str) -> str:
-    """Turn a configured group title such as 'Echt TS (5421)' into 'Echt'."""
+    """Turn a selected Brandweerrooster group into a station name."""
     name = re.sub(r"\s*\([^)]*\)\s*$", "", str(title or "")).strip()
     name = re.sub(r"^Brandweer\s+", "", name, flags=re.IGNORECASE).strip()
+    # Group names are commonly things such as ``Echt TS`` or
+    # ``Amsterdam-West TS``. Remove the vehicle/group suffix, but keep the
+    # actual station name.
     name = re.sub(
-        r"\s+(?:TS|HV|SHE|SIV|Ploeg(?:en)?|Kazerne(?:techniek)?|Groep(?:en)?)$",
+        r"\s+(?:TS|HV|HOVD|SHE|SIV|WO|AL|DA|HA|TST|SB|DV-HOD|DA-OVD|Ploeg(?:en)?|Kazerne(?:techniek)?|Groep(?:en)?)$",
         "",
         name,
         flags=re.IGNORECASE,

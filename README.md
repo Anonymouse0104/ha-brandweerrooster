@@ -1,3 +1,10 @@
+## v1.1.8
+
+- Gebruikt de geselecteerde Brandweerrooster-hoofdgroep om automatisch de kazerne-/stationnaam in het uitrukbericht te tonen.
+- `Echt TS` wordt bijvoorbeeld `Brandweer Echt uitgerukt`; andere gebruikers krijgen automatisch hun eigen kazerne.
+- Bij een tijdelijke API-rate-limit blijft het actuele incident zichtbaar op basis van `sensor.incidents` in FireServiceRota in plaats van `Geen uitruk`.
+- De voertuigcodes en alarmtijd kunnen ook uit deze lokale fallback worden gebruikt.
+
 ## 1.1.5
 
 ### Changes
