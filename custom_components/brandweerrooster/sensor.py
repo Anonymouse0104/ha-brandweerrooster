@@ -18,13 +18,22 @@ def _split_p2000(body: str) -> dict[str, str]:
     result = {"melding": body, "straat": "", "plaats": "", "locatie": body}
     parts = [part.strip() for part in body.split(" - ") if part.strip()]
     if len(parts) >= 3:
-        result.update(melding=parts[0], straat=parts[1], plaats=parts[2], locatie=" - ".join(parts[1:]))
+        result.update(
+            melding=parts[0],
+            straat=parts[1],
+            plaats=parts[2],
+            locatie=" - ".join(parts[1:]),
+        )
     elif len(parts) == 2:
         result.update(melding=parts[0], locatie=parts[1])
     return result
 
 
-async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback) -> None:
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
+) -> None:
     coordinator: BrandweerRoosterCoordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     async_add_entities(
         [
@@ -42,12 +51,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry, async_add_e
     )
 
 
-class BaseBrandweerSensor(CoordinatorEntity[BrandweerRoosterCoordinator], SensorEntity):
-    """Base entity."""
-
+class BaseBrandweerSensor(
+    CoordinatorEntity[BrandweerRoosterCoordinator], SensorEntity
+):
     _attr_has_entity_name = True
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator, name: str, unique_suffix: str) -> None:
+    def __init__(
+        self,
+        coordinator: BrandweerRoosterCoordinator,
+        name: str,
+        unique_suffix: str,
+    ) -> None:
         super().__init__(coordinator)
         self._attr_name = name
         self._attr_unique_id = f"{coordinator.entry.entry_id}_{unique_suffix}"
@@ -60,8 +74,6 @@ class BaseBrandweerSensor(CoordinatorEntity[BrandweerRoosterCoordinator], Sensor
 
 
 class LatestIncidentSensor(BaseBrandweerSensor):
-    """Latest relevant incident."""
-
     _attr_icon = "mdi:fire-truck"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -72,7 +84,7 @@ class LatestIncidentSensor(BaseBrandweerSensor):
         incident = self.coordinator.data.get("latest_incident") if self.coordinator.data else None
         if not incident:
             return "Geen incident"
-        return f"Incident {incident.get("id", "onbekend")}"
+        return f"Incident {incident.get('id', 'onbekend')}"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -83,6 +95,7 @@ class LatestIncidentSensor(BaseBrandweerSensor):
         parsed = _split_p2000(body)
         groups = incident.get("groups") or incident.get("group_ids") or []
         tasks = incident.get("task_ids") or []
+        vehicles = _incident_vehicles(incident, self.coordinator)
         return {
             "incident_id": incident.get("id"),
             "melding": parsed["melding"],
@@ -96,8 +109,12 @@ class LatestIncidentSensor(BaseBrandweerSensor):
             "start_time": incident.get("start_time"),
             "task_ids": tasks,
             "group_ids": groups,
-            "alarmeringen": [self.coordinator.task_map.get(int(task_id), f"Taak {task_id}") for task_id in tasks if str(task_id).isdigit()],
-            "groepen": [self.coordinator.group_map.get(int(group_id), f"Groep {group_id}") for group_id in groups if str(group_id).isdigit()],
+            "alarmeringen": [
+                self.coordinator.task_map.get(int(task_id), f"Taak {task_id}")
+                for task_id in tasks
+                if str(task_id).isdigit()
+            ],
+            "voertuigen": vehicles,
             "opkomstreacties": incident.get("incident_responses") or [],
             "personeel": _personnel(incident, self.coordinator),
             "personeel_per_functie": _personnel_by_function(incident, self.coordinator),
@@ -105,8 +122,6 @@ class LatestIncidentSensor(BaseBrandweerSensor):
 
 
 class CrewSensor(BaseBrandweerSensor):
-    """Current assigned personnel."""
-
     _attr_icon = "mdi:account-group"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -114,17 +129,26 @@ class CrewSensor(BaseBrandweerSensor):
 
     @property
     def native_value(self) -> int:
-        return len(_personnel(self.coordinator.data.get("latest_incident") if self.coordinator.data else None, self.coordinator))
+        return len(
+            _personnel(
+                self.coordinator.data.get("latest_incident")
+                if self.coordinator.data
+                else None,
+                self.coordinator,
+            )
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         incident = self.coordinator.data.get("latest_incident") if self.coordinator.data else None
-        return {"personeel": _personnel(incident, self.coordinator), "per_functie": _personnel_by_function(incident, self.coordinator)}
+        return {
+            "personeel": _personnel(incident, self.coordinator),
+            "per_functie": _personnel_by_function(incident, self.coordinator),
+            "laatste_uitruk_voertuigen": _incident_vehicles(incident, self.coordinator),
+        }
 
 
 class ResponseSensor(BaseBrandweerSensor):
-    """Incident response summary."""
-
     _attr_icon = "mdi:account-check"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -132,11 +156,21 @@ class ResponseSensor(BaseBrandweerSensor):
 
     @property
     def native_value(self) -> int:
-        return len(_responses(self.coordinator.data.get("latest_incident") if self.coordinator.data else None))
+        return len(
+            _responses(
+                self.coordinator.data.get("latest_incident")
+                if self.coordinator.data
+                else None
+            )
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        responses = _responses(self.coordinator.data.get("latest_incident") if self.coordinator.data else None)
+        responses = _responses(
+            self.coordinator.data.get("latest_incident")
+            if self.coordinator.data
+            else None
+        )
         summary = {"opgekomen": 0, "afgewezen": 0, "overig": 0}
         positive = {
             "acknowledged", "dispatched", "responded", "accepted", "coming",
@@ -147,7 +181,9 @@ class ResponseSensor(BaseBrandweerSensor):
             "absent", "cancelled", "canceled",
         }
         for response in responses:
-            status = str(response.get("reported_status") or response.get("status") or "").strip().lower().replace(" ", "_")
+            status = str(
+                response.get("reported_status") or response.get("status") or ""
+            ).strip().lower().replace(" ", "_")
             if status in positive:
                 summary["opgekomen"] += 1
             elif status in negative:
@@ -158,8 +194,6 @@ class ResponseSensor(BaseBrandweerSensor):
 
 
 class CurrentUserSensor(BaseBrandweerSensor):
-    """Logged-in Brandweerrooster user."""
-
     _attr_icon = "mdi:account"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -168,17 +202,25 @@ class CurrentUserSensor(BaseBrandweerSensor):
     @property
     def native_value(self) -> str:
         user = self.coordinator.data.get("current_user") if self.coordinator.data else {}
-        return str(user.get("name") or user.get("nickname") or user.get("email") or user.get("id") or "Onbekend")
+        return str(
+            user.get("name")
+            or user.get("nickname")
+            or user.get("email")
+            or user.get("id")
+            or "Onbekend"
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         user = self.coordinator.data.get("current_user") if self.coordinator.data else {}
-        return {key: value for key, value in user.items() if key not in {"password", "access_token", "refresh_token"}}
+        return {
+            key: value
+            for key, value in user.items()
+            if key not in {"password", "access_token", "refresh_token"}
+        }
 
 
 class MyResponseSensor(BaseBrandweerSensor):
-    """Current user's response to the latest incident."""
-
     _attr_icon = "mdi:account-arrow-right"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -187,7 +229,11 @@ class MyResponseSensor(BaseBrandweerSensor):
     @property
     def native_value(self) -> str:
         response = _my_response(self.coordinator)
-        return str(response.get("reported_status") or response.get("status") or "Geen actieve opkomst")
+        return str(
+            response.get("reported_status")
+            or response.get("status")
+            or "Geen actieve opkomst"
+        )
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -195,8 +241,6 @@ class MyResponseSensor(BaseBrandweerSensor):
 
 
 class UitrukMessageSensor(BaseBrandweerSensor):
-    """Ready-to-copy Dutch Facebook incident message."""
-
     _attr_icon = "mdi:facebook"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -223,62 +267,234 @@ def _my_response(coordinator: BrandweerRoosterCoordinator) -> dict[str, Any]:
     return {}
 
 
-def _facebook_message(incident: dict[str, Any] | None, coordinator: BrandweerRoosterCoordinator) -> str:
+def _vehicle_name(value: Any) -> str | None:
+    """Extract a useful vehicle/appliance/unit name from one API object."""
+    if isinstance(value, str):
+        name = value.strip()
+        return name or None
+    if not isinstance(value, dict):
+        return None
+    for key in (
+        "vehicle_name",
+        "vehicle",
+        "appliance_name",
+        "appliance",
+        "unit_name",
+        "unit",
+        "vehicle_type",
+        "appliance_type",
+        "name",
+        "title",
+        "description",
+    ):
+        candidate = value.get(key)
+        if isinstance(candidate, dict):
+            candidate = (
+                candidate.get("name")
+                or candidate.get("title")
+                or candidate.get("description")
+            )
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _incident_vehicles(
+    incident: dict[str, Any] | None,
+    coordinator: BrandweerRoosterCoordinator,
+) -> list[str]:
+    """Return vehicles explicitly attached to the incident.
+
+    We deliberately do not use task names as vehicle names. Brandweerrooster
+    exposes tasks and appliance/vehicle availability as separate concepts.
+    The function accepts several API representations so it remains compatible
+    when the incident payload contains nested vehicle/appliance/unit data.
+    """
+    if not incident:
+        return []
+
+    names: list[str] = []
+    seen: set[str] = set()
+
+    vehicle_keys = {
+        "vehicles",
+        "vehicle",
+        "appliances",
+        "appliance",
+        "units",
+        "unit",
+        "resources",
+        "assigned_vehicles",
+        "assigned_appliances",
+        "responding_vehicles",
+        "responding_appliances",
+        "alerted_vehicles",
+        "alerted_appliances",
+        "incident_vehicles",
+        "incident_appliances",
+    }
+
+    def walk(value: Any, parent_key: str = "") -> None:
+        if isinstance(value, dict):
+            for key, child in value.items():
+                key_norm = str(key).lower()
+                if key_norm in vehicle_keys:
+                    if isinstance(child, list):
+                        for item in child:
+                            name = _vehicle_name(item)
+                            if name and name not in seen:
+                                seen.add(name)
+                                names.append(name)
+                    else:
+                        name = _vehicle_name(child)
+                        if name and name not in seen:
+                            seen.add(name)
+                            names.append(name)
+                    # Continue walking: some API responses nest details below
+                    # vehicle/appliance objects.
+                if isinstance(child, (dict, list)):
+                    walk(child, key_norm)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item, parent_key)
+
+    walk(incident)
+    return names
+
+
+def _facebook_message(
+    incident: dict[str, Any] | None,
+    coordinator: BrandweerRoosterCoordinator,
+) -> str:
     if not incident:
         return ""
+
     body = str(incident.get("body") or incident.get("location") or "Onbekend incident")
     parsed = _split_p2000(body)
     incident_type = str(incident.get("type") or "uitruk").replace("_", " ")
     priority = incident.get("prio")
     location = parsed["locatie"] or parsed["plaats"] or "onbekende locatie"
-    task_ids = incident.get("task_ids") or []
-    task_names = [coordinator.task_map.get(int(task_id), f"Taak {task_id}") for task_id in task_ids if str(task_id).isdigit()]
-    units = ", ".join(dict.fromkeys(task_names))
-    lines = [f"🚒 Brandweer {coordinator.entry.title.split(' - ')[0] if ' - ' in coordinator.entry.title else coordinator.entry.title} uitgerukt", "", f"Voor een {incident_type} is de brandweer gealarmeerd.", f"📍 {location}"]
+
+    created_at = incident.get("created_at")
+    alarm_time = ""
+    if created_at:
+        try:
+            from homeassistant.util import dt as dt_util
+            parsed_time = dt_util.parse_datetime(str(created_at))
+            if parsed_time:
+                alarm_time = parsed_time.strftime("%H:%M")
+        except (TypeError, ValueError):
+            pass
+
+    vehicles = _incident_vehicles(incident, coordinator)
+
+    station_name = coordinator.entry.title.split(" - ")[0]
+    lines = [
+        f"🚒 Brandweer {station_name} uitgerukt",
+        "",
+        f"Voor een {incident_type} is de brandweer gealarmeerd.",
+        f"📍 {location}",
+    ]
+
+    if alarm_time:
+        lines.append(f"🕐 Alarmering: {alarm_time} uur")
     if priority is not None:
-        lines.append(f"📟 Prioriteit: P{priority}")
-    if units:
-        lines.append(f"🚒 Inzet: {units}")
-    lines.extend(["", "Meer informatie volgt indien beschikbaar.", "", "#Brandweer #Brandweerrooster"])
+        priority_text = str(priority).lower().replace("prio", "P")
+        if priority_text.isdigit():
+            priority_text = f"P{priority_text}"
+        lines.append(f"📟 Prioriteit: {priority_text}")
+    if vehicles:
+        lines.append(f"🚒 Voertuigen: {', '.join(vehicles)}")
+
+    lines.extend(
+        [
+            "",
+            "Meer informatie volgt indien beschikbaar.",
+            "",
+            "#Brandweer #Brandweerrooster",
+        ]
+    )
     return "\n".join(lines)
 
 
 def _responses(incident: dict[str, Any] | None) -> list[dict[str, Any]]:
     if not incident:
         return []
-    return [x for x in (incident.get("incident_responses") or []) if isinstance(x, dict)]
+    return [
+        x for x in (incident.get("incident_responses") or [])
+        if isinstance(x, dict)
+    ]
 
 
-def _personnel(incident: dict[str, Any] | None, coordinator: BrandweerRoosterCoordinator) -> list[dict[str, Any]]:
+def _personnel(
+    incident: dict[str, Any] | None,
+    coordinator: BrandweerRoosterCoordinator,
+) -> list[dict[str, Any]]:
     if not incident:
         return []
     assignments = incident.get("incident_skill_assignments") or []
-    responses = {str(x.get("user_id")): x for x in _responses(incident) if x.get("user_id") is not None}
+    responses = {
+        str(x.get("user_id")): x
+        for x in _responses(incident)
+        if x.get("user_id") is not None
+    }
     result: list[dict[str, Any]] = []
     for assignment in assignments:
         user_id = assignment.get("user_id")
         response = responses.get(str(user_id), {})
-        name = response.get("user_name") or response.get("user_nickname") or f"Gebruiker {user_id}"
+        name = (
+            response.get("user_name")
+            or response.get("user_nickname")
+            or f"Gebruiker {user_id}"
+        )
         skill_ids = assignment.get("skill_ids") or []
         if not skill_ids:
-            result.append({"user_id": user_id, "naam": name, "functie": "Onbekend", "status": response.get("status"), "reported_status": response.get("reported_status")})
+            result.append(
+                {
+                    "user_id": user_id,
+                    "naam": name,
+                    "functie": "Onbekend",
+                    "status": response.get("status"),
+                    "reported_status": response.get("reported_status"),
+                }
+            )
         else:
             for skill_id in skill_ids:
-                result.append({"user_id": user_id, "naam": name, "skill_id": skill_id, "functie": coordinator.skill_map.get(int(skill_id), f"Skill {skill_id}"), "status": response.get("status"), "reported_status": response.get("reported_status")})
-    result.sort(key=lambda item: (str(item.get("functie", "")), str(item.get("naam", ""))))
+                result.append(
+                    {
+                        "user_id": user_id,
+                        "naam": name,
+                        "skill_id": skill_id,
+                        "functie": coordinator.skill_map.get(
+                            int(skill_id), f"Skill {skill_id}"
+                        ),
+                        "status": response.get("status"),
+                        "reported_status": response.get("reported_status"),
+                    }
+                )
+    result.sort(
+        key=lambda item: (
+            str(item.get("functie", "")),
+            str(item.get("naam", "")),
+        )
+    )
     return result
 
 
-def _personnel_by_function(incident: dict[str, Any] | None, coordinator: BrandweerRoosterCoordinator) -> dict[str, list[str]]:
+def _personnel_by_function(
+    incident: dict[str, Any] | None,
+    coordinator: BrandweerRoosterCoordinator,
+) -> dict[str, list[str]]:
     grouped: dict[str, list[str]] = {}
     for person in _personnel(incident, coordinator):
-        grouped.setdefault(str(person.get("functie", "Onbekend")), []).append(str(person.get("naam", "Onbekend")))
+        grouped.setdefault(
+            str(person.get("functie", "Onbekend")),
+            [],
+        ).append(str(person.get("naam", "Onbekend")))
     return grouped
 
 
 class UitrukkenDezeMaandSensor(BaseBrandweerSensor):
-    """Number of personal attended incidents this calendar month."""
-
     _attr_icon = "mdi:calendar-month"
     _attr_native_unit_of_measurement = "uitrukken"
 
@@ -291,8 +507,6 @@ class UitrukkenDezeMaandSensor(BaseBrandweerSensor):
 
 
 class UitrukkenDitJaarSensor(BaseBrandweerSensor):
-    """Number of personal attended incidents this calendar year."""
-
     _attr_icon = "mdi:calendar"
     _attr_native_unit_of_measurement = "uitrukken"
 
@@ -305,8 +519,6 @@ class UitrukkenDitJaarSensor(BaseBrandweerSensor):
 
 
 class UitrukkenTotaalSensor(BaseBrandweerSensor):
-    """Lifetime number of personal attended and assigned incidents."""
-
     _attr_icon = "mdi:counter"
     _attr_native_unit_of_measurement = "uitrukken"
 
@@ -319,14 +531,20 @@ class UitrukkenTotaalSensor(BaseBrandweerSensor):
 
 
 class UitrukkenOpgekomenNietIngedeeldSensor(BaseBrandweerSensor):
-    """Lifetime count of attended incidents without a crew assignment."""
-
     _attr_icon = "mdi:account-alert"
     _attr_native_unit_of_measurement = "uitrukken"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "Opgekomen, niet ingedeeld", "uitrukken_niet_ingedeeld")
+        super().__init__(
+            coordinator,
+            "Opgekomen, niet ingedeeld",
+            "uitrukken_niet_ingedeeld",
+        )
 
     @property
     def native_value(self) -> int:
-        return int((self.coordinator.data or {}).get("statistics", {}).get("not_assigned", 0))
+        return int(
+            (self.coordinator.data or {})
+            .get("statistics", {})
+            .get("not_assigned", 0)
+        )

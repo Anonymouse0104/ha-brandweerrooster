@@ -1,3 +1,13 @@
+## 1.1.5
+
+### Changes
+
+- Added alarm time to the generated dispatch/Facebook message.
+- Added explicit incident vehicle/appliance/unit extraction when those objects are actually present in the incident payload.
+- `task_ids` are no longer treated as vehicle names.
+- If the API does not provide explicit vehicle information for an incident, the vehicle line is omitted rather than guessed.
+- Existing event-driven incident handling remains unchanged: the integration listens to FireServiceRota `sensor.incidents` and requests Brandweerrooster details only when a new incident ID is detected.
+
 ## 1.1.4
 
 ### Changes
