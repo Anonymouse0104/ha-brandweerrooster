@@ -30,5 +30,12 @@
     "abort": {
       "already_configured": "Dit Brandweerrooster-account is al geconfigureerd."
     }
+  },
+  "entity": {
+    "event": {
+      "new_incident": {
+        "name": "Nieuw incident"
+      }
+    }
   }
 }

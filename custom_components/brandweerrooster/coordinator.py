@@ -160,6 +160,9 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 "start_time": state.attributes.get("start_time") or state.attributes.get("created_at"),
                 "group_ids": state.attributes.get("group_ids") or state.attributes.get("groups") or ([self.station_group_id] if self.station_group_id else []),
                 "task_ids": state.attributes.get("task_ids") or [],
+                "latitude": state.attributes.get("latitude"),
+                "longitude": state.attributes.get("longitude"),
+                "formatted_address": state.attributes.get("formatted_address"),
             }
         if not self._is_relevant(incident):
             return None

@@ -69,6 +69,54 @@ The integration creates one Home Assistant device per configured account with en
 
 Live availability and accept/decline controls remain the responsibility of FireServiceRota.
 
+## Incident event entity
+
+The integration creates a **New incident** event entity for automation-friendly incident notifications. The event types are:
+
+- `p1_incident` — a new P1 incident
+- `p2_incident` — a new P2 incident
+- `new_incident` — another or unknown priority
+
+The event data contains the incident ID, message, location, priority, station, vehicles and timestamps. Latitude and longitude are included when the source provides coordinates.
+
+Example automation:
+
+```yaml
+alias: Brandweerrooster - P1 notification
+triggers:
+  - trigger: event.received
+    target:
+      entity_id: event.brandweerrooster_new_incident
+    options:
+      event_type:
+        - p1_incident
+actions:
+  - action: notify.mobile_app_your_phone
+    data:
+      title: "🚒 P1 brandweermelding"
+      message: >-
+        {{ trigger.event.data.melding }} - {{ trigger.event.data.locatie }}
+```
+
+The exact entity ID depends on the configured device/entity naming in Home Assistant. See `examples/automation_new_incident.yaml` for a complete example.
+
+Home Assistant event entities are designed for momentary events and expose their event types to the automation UI.
+
+## Incident location and maps
+
+The **Latest incident** sensor now exposes `latitude` and `longitude` when coordinates are available in the Brandweerrooster incident or the companion FireServiceRota incident state. If no coordinates are provided by the source, the integration leaves them empty and does not geocode or invent a position.
+
+This allows users to show the latest incident on a Home Assistant map card. For example:
+
+```yaml
+type: map
+entities:
+  - entity: sensor.brandweerrooster_latest_incident
+    name: Latest incident
+```
+
+Replace the example entity ID with the actual entity ID created by your Brandweerrooster config entry. See `examples/map_latest_incident.yaml`.
+
 ## Personal turnout statistics
 
 During setup, enter the user's name for personal statistics. The integration also uses the Brandweerrooster user ID whenever available.

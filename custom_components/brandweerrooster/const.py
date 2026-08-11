@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 DOMAIN = "brandweerrooster"
-VERSION = "1.2.0"
+VERSION = "1.3.0"
 
 API_BASE_URL = "https://www.brandweerrooster.nl/api/v2"
 OAUTH_TOKEN_URL = "https://www.brandweerrooster.nl/oauth/token"
@@ -24,7 +24,7 @@ HISTORY_PAGE_DELAY = 1.0
 FIRESERVICEROTA_INCIDENT_ENTITY = "sensor.incidents"
 DEFAULT_HISTORY_SIZE = 10
 
-PLATFORMS = ["sensor", "binary_sensor"]
+PLATFORMS = ["sensor", "binary_sensor", "event"]
 SCAN_INTERVAL = timedelta(seconds=DEFAULT_SCAN_INTERVAL)
 
 ATTR_INCIDENT_ID = "incident_id"

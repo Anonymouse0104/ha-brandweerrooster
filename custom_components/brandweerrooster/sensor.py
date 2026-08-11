@@ -16,6 +16,55 @@ from .vehicles import resolve_vehicle_names, extract_vehicle_codes
 from .coordinator import BrandweerRoosterCoordinator
 
 
+def _incident_coordinates(incident: dict[str, Any] | None) -> tuple[float | None, float | None]:
+    """Extract latitude/longitude from an incident payload.
+
+    Brandweerrooster and the companion FireServiceRota integration may expose
+    coordinates at different nesting levels, so accept common representations
+    without making assumptions about one fixed API response shape.
+    """
+    if not incident:
+        return None, None
+
+    latitude: float | None = None
+    longitude: float | None = None
+
+    def as_float(value: Any) -> float | None:
+        try:
+            if value in (None, ""):
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def walk(value: Any) -> None:
+        nonlocal latitude, longitude
+        if latitude is not None and longitude is not None:
+            return
+        if isinstance(value, dict):
+            if latitude is None:
+                for key in ("latitude", "lat"):
+                    if key in value:
+                        latitude = as_float(value.get(key))
+                        if latitude is not None:
+                            break
+            if longitude is None:
+                for key in ("longitude", "lon", "lng"):
+                    if key in value:
+                        longitude = as_float(value.get(key))
+                        if longitude is not None:
+                            break
+            for child in value.values():
+                if isinstance(child, (dict, list)):
+                    walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(incident)
+    return latitude, longitude
+
+
 def _split_p2000(body: str) -> dict[str, str]:
     """Extract a readable location from a Dutch P2000 message."""
     raw = " ".join(str(body or "").split())
@@ -139,6 +188,7 @@ class LatestIncidentSensor(BaseBrandweerSensor):
         groups = incident.get("groups") or incident.get("group_ids") or []
         tasks = incident.get("task_ids") or []
         vehicles = _incident_vehicles(incident, self.coordinator)
+        latitude, longitude = _incident_coordinates(incident)
         return {
             "incident_id": incident.get("id"),
             "melding": parsed["melding"],
@@ -158,6 +208,8 @@ class LatestIncidentSensor(BaseBrandweerSensor):
                 if str(task_id).isdigit()
             ],
             "voertuigen": vehicles,
+            "latitude": latitude,
+            "longitude": longitude,
             "opkomstreacties": incident.get("incident_responses") or [],
             "personeel": _personnel(incident, self.coordinator),
             "personeel_per_functie": _personnel_by_function(incident, self.coordinator),

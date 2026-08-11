@@ -1,0 +1,8 @@
+# Example Home Assistant map card.
+# Replace the entity ID with the actual Latest incident entity created by
+# your Brandweerrooster config entry.
+
+type: map
+entities:
+  - entity: sensor.brandweerrooster_latest_incident
+    name: Latest incident
