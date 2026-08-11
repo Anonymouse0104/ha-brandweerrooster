@@ -17,6 +17,7 @@ STORAGE_VERSION = 2
 # statistic tolerant of API versions that use a more descriptive status.
 POSITIVE_RESPONSE_STATUSES = {
     "acknowledged",
+    "shown_up",
     "dispatched",
     "responded",
     "accepted",

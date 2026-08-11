@@ -1,4 +1,4 @@
-## 1.1.3
+## 1.1.4
 
 ### Changes
 
@@ -8,6 +8,7 @@
 - Added handling for HTTP 429/rate-limit responses.
 - Removed the polling interval from the setup screen because incident updates are event-driven.
 - Kept FireServiceRota responsible for live availability and accepting/declining alarms.
+- Recognize `shown_up` as a positive response status for personal turnout statistics.
 
 
 # Brandweerrooster API for Home Assistant
@@ -86,7 +87,7 @@ The following sensors are created:
 
 The month and year counters are calculated from incident dates, so they automatically roll over at the start of a new month/year and do not depend on Home Assistant restarts. Statistics are stored locally in Home Assistant. On first setup, the integration performs a one-time historical synchronization in the background; it does not continuously poll the incident API.
 
-The integration treats `acknowledged` (the response state used by FireServiceRota when accepting an alarm), `dispatched`, `responded`, `accepted`, `coming`, `on_the_way` and `arrived` as positive response states, with explicit decline/no-show states treated as negative.
+The integration treats `acknowledged`, `shown_up` (the reported response state returned by Brandweerrooster when a user has shown up), `dispatched`, `responded`, `accepted`, `coming`, `on_the_way` and `arrived` as positive response states, with explicit decline/no-show states treated as negative.
 
 ## Incident updates and API usage
 
