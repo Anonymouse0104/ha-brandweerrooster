@@ -1,0 +1,11 @@
+{
+  "domain": "brandweerrooster",
+  "name": "Brandweerrooster API",
+  "codeowners": [],
+  "config_flow": true,
+  "documentation": "https://www.brandweerrooster.nl/apidocs/",
+  "integration_type": "hub",
+  "iot_class": "cloud_polling",
+  "requirements": [],
+  "version": "1.1.0"
+}

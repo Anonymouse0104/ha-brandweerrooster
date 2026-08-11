@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Brandweerrooster koppelen",
+        "description": "Gebruik je Brandweerrooster-account. De integratie gebruikt de officiële Brandweerrooster API v2.",
+        "data": {
+          "username": "E-mailadres",
+          "password": "Wachtwoord"
+        }
+      },
+      "scope": {
+        "title": "Kazerne en incidenten",
+        "description": "Kies de kazernegroep en eventueel extra groepen of taken die als relevant voor incidenten gelden.",
+        "data": {
+          "station_group_id": "Kazerne / hoofdgroep",
+          "monitored_group_ids": "Extra groepen volgen",
+          "monitored_task_ids": "Extra taken volgen",
+          "scan_interval": "Verversingsinterval (seconden)",
+          "person_name": "Jouw naam (voor persoonlijke uitrukstatistieken)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Kan geen verbinding maken met Brandweerrooster.",
+      "invalid_auth": "De Brandweerrooster-inloggegevens zijn niet geldig.",
+      "api_error": "Brandweerrooster gaf een API-fout terug.",
+      "unknown": "Er is een onverwachte fout opgetreden."
+    },
+    "abort": {
+      "already_configured": "Dit Brandweerrooster-account is al geconfigureerd."
+    }
+  }
+}

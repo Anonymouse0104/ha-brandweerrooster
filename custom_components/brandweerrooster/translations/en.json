@@ -1,0 +1,34 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect Brandweerrooster",
+        "description": "Use your Brandweerrooster account. The integration uses the documented Brandweerrooster API v2.",
+        "data": {
+          "username": "Email address",
+          "password": "Password"
+        }
+      },
+      "scope": {
+        "title": "Station and incidents",
+        "description": "Choose the station/group and optionally additional groups or tasks that should count as relevant incidents.",
+        "data": {
+          "station_group_id": "Station / main group",
+          "monitored_group_ids": "Additional groups",
+          "monitored_task_ids": "Additional tasks",
+          "scan_interval": "Polling interval (seconds)",
+          "person_name": "Your name (for personal incident statistics)"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Unable to connect to Brandweerrooster.",
+      "invalid_auth": "The Brandweerrooster credentials are invalid.",
+      "api_error": "Brandweerrooster returned an API error.",
+      "unknown": "An unexpected error occurred."
+    },
+    "abort": {
+      "already_configured": "This Brandweerrooster account is already configured."
+    }
+  }
+}
