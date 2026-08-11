@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from datetime import timedelta
+
+from homeassistant.util import dt as dt_util
 import logging
 from typing import Any
 
@@ -72,7 +74,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except BrandweerRoosterApiError as err:
                 _LOGGER.warning("Volledige details van incident %s konden niet worden opgehaald: %s", latest.get("id"), err)
 
-        counts = self.statistics.counts(self.hass.config.now())
+        counts = self.statistics.counts(dt_util.now())
         return {
             "current_user": current_user,
             "latest_incident": latest,

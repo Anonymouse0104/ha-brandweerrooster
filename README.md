@@ -1,3 +1,7 @@
+## 1.1.2
+
+Fix compatibility with current Home Assistant time handling (`dt_util.now()`).
+
 # Brandweerrooster API for Home Assistant
 
 Unofficial custom Home Assistant integration for the Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
