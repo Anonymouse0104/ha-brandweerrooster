@@ -23,6 +23,7 @@ from .const import (
     HISTORY_PAGE_DELAY,
 )
 from .statistics import PersonalIncidentStatistics
+from .facebook_template import FacebookTemplate
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.group_map: dict[int, str] = {}
         self.task_map: dict[int, str] = {}
         self.statistics = PersonalIncidentStatistics(hass, entry.entry_id)
+        self.facebook_template = FacebookTemplate(hass)
         self._current_user: dict[str, Any] = {}
         self._last_incident_id: int | None = None
         self._incident_lock = asyncio.Lock()
@@ -57,6 +59,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_setup(self) -> None:
         """Load persistent state, user data and station labels once during setup."""
         await self.statistics.async_load()
+        await self.facebook_template.async_load()
         self._current_user = await self.api.async_get_current_user()
         # Load the selected station group before the first incident lookup.
         # The selected group name is used for the generic station name in

@@ -1,0 +1,31 @@
+# Copy this file to /config/brandweerrooster/facebook_template.yaml
+# to customize the generated Facebook dispatch message.
+#
+# Available placeholders:
+# {kazerne}
+# {uitrukbericht}
+# {incident_type}
+# {melding}
+# {locatie}
+# {straat}
+# {plaats}
+# {tijd}
+# {datum}
+# {prioriteit}
+# {voertuigen}
+# {incident_id}
+# {created_at}
+# {start_time}
+
+facebook_template: |
+  🚒 Brandweer {kazerne} uitgerukt
+
+  {uitrukbericht}
+  📍 {locatie}
+  🕐 Alarmering: {tijd}
+  📟 Prioriteit: {prioriteit}
+  🚒 Voertuigen: {voertuigen}
+
+  Meer informatie volgt indien beschikbaar.
+
+  #Brandweer #Hulpverlening

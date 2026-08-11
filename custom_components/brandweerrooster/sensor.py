@@ -379,57 +379,51 @@ def _facebook_message(
     incident: dict[str, Any] | None,
     coordinator: BrandweerRoosterCoordinator,
 ) -> str:
+    """Render the configurable Facebook dispatch message."""
     if not incident:
         return ""
 
     body = str(incident.get("body") or incident.get("location") or "Onbekend incident")
     parsed = _split_p2000(body)
-    priority = incident.get("prio")
-    location = parsed["locatie"] or parsed["plaats"] or "onbekende locatie"
+    priority = _format_priority(incident.get("prio"))
 
     created_at = incident.get("created_at") or incident.get("start_time")
     alarm_time = ""
+    alarm_date = ""
     if created_at:
         try:
             from homeassistant.util import dt as dt_util
+
             parsed_time = dt_util.parse_datetime(str(created_at))
             if parsed_time:
-                alarm_time = parsed_time.strftime("%H:%M")
+                parsed_time = dt_util.as_local(parsed_time)
+                alarm_time = parsed_time.strftime("%H:%M") + " uur"
+                alarm_date = parsed_time.strftime("%d-%m-%Y")
         except (TypeError, ValueError):
             pass
 
+    incident_type = str(incident.get("type") or "uitruk").replace("_", " ").strip()
+    location = parsed["locatie"] or parsed["plaats"] or "onbekende locatie"
     vehicles = _incident_vehicles(incident, coordinator)
-
-    # Gebruik de daadwerkelijk geconfigureerde hoofdgroep uit Brandweerrooster.
-    # Dit voorkomt dat een oude/aangepaste HA-entrytitel zoals "Ploeg 2"
-    # in het Facebookbericht terechtkomt.
     station_name = _station_name_for_incident(incident, coordinator)
-    lines = [
-        f"🚒 Brandweer {station_name} uitgerukt",
-        "",
-        "Voor een incident alert is de brandweer gealarmeerd.",
-        f"📍 {location}",
-    ]
 
-    if alarm_time:
-        lines.append(f"🕐 Alarmering: {alarm_time} uur")
-
-    priority_text = _format_priority(priority)
-    if priority_text:
-        lines.append(f"📟 Prioriteit: {priority_text}")
-
-    if vehicles:
-        lines.append(f"🚒 Voertuigen: {', '.join(vehicles)}")
-
-    lines.extend(
-        [
-            "",
-            "Meer informatie volgt indien beschikbaar.",
-            "",
-            "#Brandweer #Hulpverlening",
-        ]
-    )
-    return "\n".join(lines)
+    values = {
+        "kazerne": station_name,
+        "uitrukbericht": f"Voor een {incident_type} is de brandweer gealarmeerd.",
+        "incident_type": incident_type,
+        "melding": parsed["melding"],
+        "locatie": location,
+        "straat": parsed["straat"],
+        "plaats": parsed["plaats"],
+        "tijd": alarm_time,
+        "datum": alarm_date,
+        "prioriteit": priority,
+        "voertuigen": ", ".join(vehicles),
+        "incident_id": str(incident.get("id") or ""),
+        "created_at": str(incident.get("created_at") or ""),
+        "start_time": str(incident.get("start_time") or ""),
+    }
+    return coordinator.facebook_template.render(values)
 
 
 def _format_priority(value: Any) -> str:

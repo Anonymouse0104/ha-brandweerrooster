@@ -1,68 +1,29 @@
-## v1.1.9
-
-### Kazerne in het uitrukbericht wordt correct bepaald
-
-- De naam bovenaan het automatisch gegenereerde uitrukbericht wordt nu bepaald op basis van de **daadwerkelijke kazerne-/hoofdgroep van het incident**.
-- Een lokale ploegnaam zoals `Ploeg 2 (4292)` wordt nooit meer als kazerne in het Facebookbericht gebruikt.
-- Een incident van `Echt TS` resulteert daardoor in `🚒 Brandweer Echt uitgerukt`.
-- Dezelfde logica werkt generiek voor andere kazernes en Brandweerrooster-accounts.
-- De bestaande voertuigcode-resolutie, alarmeringstijd, prioriteit en `#Brandweer #Hulpverlening` blijven behouden.
-
-## v1.1.8
-
-- Gebruikt de geselecteerde Brandweerrooster-hoofdgroep om automatisch de kazerne-/stationnaam in het uitrukbericht te tonen.
-- `Echt TS` wordt bijvoorbeeld `Brandweer Echt uitgerukt`; andere gebruikers krijgen automatisch hun eigen kazerne.
-- Bij een tijdelijke API-rate-limit blijft het actuele incident zichtbaar op basis van `sensor.incidents` in FireServiceRota in plaats van `Geen uitruk`.
-- De voertuigcodes en alarmtijd kunnen ook uit deze lokale fallback worden gebruikt.
-
-## 1.1.5
-
-### Changes
-
-- Added alarm time to the generated dispatch/Facebook message.
-- Added explicit incident vehicle/appliance/unit extraction when those objects are actually present in the incident payload.
-- `task_ids` are no longer treated as vehicle names.
-- If the API does not provide explicit vehicle information for an incident, the vehicle line is omitted rather than guessed.
-- Existing event-driven incident handling remains unchanged: the integration listens to FireServiceRota `sensor.incidents` and requests Brandweerrooster details only when a new incident ID is detected.
-
-## 1.1.4
-
-### Changes
-
-- Removed periodic incident polling from the Brandweerrooster API.
-- The integration now listens to the official FireServiceRota `sensor.incidents` entity and requests incident details only when a new incident ID is detected.
-- Added throttled, one-time historical synchronization for personal turnout statistics. The history sync runs in the background and resumes from its last completed page after a restart.
-- Added handling for HTTP 429/rate-limit responses.
-- Removed the polling interval from the setup screen because incident updates are event-driven.
-- Kept FireServiceRota responsible for live availability and accepting/declining alarms.
-- Recognize `shown_up` as a positive response status for personal turnout statistics.
-
-
 # Brandweerrooster API for Home Assistant
 
-Unofficial custom Home Assistant integration for the Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
+Unofficial Home Assistant custom integration for the public Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
 
 ## What it does
 
 - Logs in using the documented Brandweerrooster OAuth password flow.
-- Lets you select a station/group during setup instead of hard-coding a specific fire station.
-- Retrieves incident details, responses and assigned personnel.
+- Lets you select the station/main group during setup instead of hard-coding a fire station.
+- Receives live incident triggers from the official FireServiceRota Home Assistant integration.
+- Retrieves the relevant Brandweerrooster incident, response and assigned-personnel data.
 - Generates a copy-ready Dutch Facebook dispatch message.
-- Resolves known P2000 vehicle numbers to readable vehicle names in the dispatch message.
+- Resolves known P2000 vehicle numbers to readable vehicle names.
 - Keeps personal turnout statistics for the configured Brandweerrooster user.
+- Stores incident/statistics data locally so it remains available after a Home Assistant restart.
 
 ## Required companion integration: FireServiceRota
 
-This integration intentionally does **not** replace the official Home Assistant **FireServiceRota** integration for live availability and accepting/declining an alarm. Install and configure the official FireServiceRota integration as well.
+This integration intentionally does **not** replace the official Home Assistant FireServiceRota integration for live availability and accepting/declining an alarm. Install and configure FireServiceRota as well.
 
-For the dashboard functionality supplied with this project, keep the following entity IDs unchanged:
+For dashboards using the standard entity IDs, keep these FireServiceRota entity IDs unchanged:
 
-- `binary_sensor.duty` — your availability/duty status
+- `binary_sensor.duty` — availability/duty status
+- `sensor.incidents` — live incident trigger
 - `switch.incident_response` — accept/decline the current incident
 
-If you rename these entities in Home Assistant, dashboards or automations using these fixed entity IDs will no longer work. If you have multiple FireServiceRota configurations, the entity IDs may differ; in that case adapt your dashboard accordingly.
-
-The Brandweerrooster API integration remains responsible for incident history, assigned personnel, Facebook text and the personal statistics described below.
+If your FireServiceRota setup uses different entity IDs, adapt the dashboard and/or integration constants accordingly.
 
 ## Installation with HACS
 
@@ -73,11 +34,9 @@ The Brandweerrooster API integration remains responsible for incident history, a
 5. Restart Home Assistant.
 6. Go to **Settings → Devices & services → Add integration**.
 7. Search for **Brandweerrooster API**.
-8. Sign in and select the relevant station/group.
+8. Sign in and select the relevant station/main group.
 
-Also install/configure the official **FireServiceRota** integration if you want availability and accept/decline controls.
-
-## Installation manually
+## Manual installation
 
 Copy `custom_components/brandweerrooster` into:
 
@@ -87,20 +46,28 @@ Copy `custom_components/brandweerrooster` into:
 
 Restart Home Assistant and add the integration from the UI.
 
+## Station selection
+
+During setup, the integration retrieves the available Brandweerrooster groups and lets the user select a station/main group. The selected group is stored as `station_group_id`.
+
+The generated Facebook message uses the selected/incident-related station group to determine the `{kazerne}` placeholder. The Home Assistant config-entry title is **not** used for the public station name, so names such as `Ploeg 2 (4292)` do not appear in the generated message.
+
+This makes the same integration usable for different stations without changing the source code.
+
 ## Entities
 
-The integration creates one device per configured account with entities for:
+The integration creates one Home Assistant device per configured account with entities for:
 
 - latest incident
 - assigned personnel
 - incident response summary
 - logged-in user
-- current user's API response
+- current user's response
 - copy-ready Facebook dispatch message
 - personal turnout statistics
 - API availability
 
-For live availability and accept/decline, use the FireServiceRota entities listed above.
+Live availability and accept/decline controls remain the responsibility of FireServiceRota.
 
 ## Personal turnout statistics
 
@@ -109,53 +76,96 @@ During setup, enter the user's name for personal statistics. The integration als
 The following sensors are created:
 
 - **Uitrukken deze maand**: the user positively responded to an incident **and** appears in the assigned personnel list; current calendar month.
-- **Uitrukken dit jaar**: same definition for the current calendar year.
-- **Uitrukken totaal**: same definition over the known incident history.
+- **Uitrukken dit jaar**: the same definition for the current calendar year.
+- **Uitrukken totaal**: the same definition over the known incident history.
 - **Opgekomen, niet ingedeeld**: the user positively responded but does not appear in the assigned personnel list.
 
-The month and year counters are calculated from incident dates, so they automatically roll over at the start of a new month/year and do not depend on Home Assistant restarts. Statistics are stored locally in Home Assistant. On first setup, the integration performs a one-time historical synchronization in the background; it does not continuously poll the incident API.
-
-The integration treats `acknowledged`, `shown_up` (the reported response state returned by Brandweerrooster when a user has shown up), `dispatched`, `responded`, `accepted`, `coming`, `on_the_way` and `arrived` as positive response states, with explicit decline/no-show states treated as negative.
+The month and year counters are based on incident dates and therefore roll over automatically at the start of a new month/year. Statistics are stored locally in Home Assistant and survive a restart.
 
 ## Incident updates and API usage
 
-This integration intentionally does not poll the Brandweerrooster incident endpoint on a timer. The official FireServiceRota Home Assistant integration is the source for the live incident trigger.
+The integration does not continuously poll the Brandweerrooster incident endpoint. It listens to the FireServiceRota `sensor.incidents` entity and only requests the corresponding Brandweerrooster incident when a new incident ID is detected.
 
-The integration listens to:
+A one-time, throttled background history synchronization is used to build personal turnout statistics. Progress is persisted so the synchronization can resume after a restart.
 
-- `sensor.incidents` — the incident ID is used to detect a new incident.
+If Brandweerrooster temporarily returns an HTTP 429/rate-limit response, the integration keeps the current FireServiceRota incident available instead of replacing it with an empty state.
 
-When the incident ID changes, the integration requests the corresponding Brandweerrooster incident details and stores the relevant data locally. This keeps API usage low and avoids unnecessary polling.
+## Configurable Facebook dispatch message
 
-A one-time background history synchronization is used to build the personal lifetime/month/year statistics. This synchronization is throttled and persisted so it can resume after a restart.
+The `Uitrukbericht` sensor contains a `bericht` attribute with the generated Facebook message.
 
-## Facebook dispatch message
-
-The `Uitrukbericht` sensor contains a `bericht` attribute with a Dutch, copy-ready Facebook message based on the latest relevant incident. The vehicle line is based on vehicle codes found in the actual P2000 incident message, not on Brandweerrooster task names.
-
-For example:
+On first setup, the integration creates this file automatically:
 
 ```text
-🚒 Brandweer Echt uitgerukt
-
-Voor een incident alert is de brandweer gealarmeerd.
-📍 Kraanbergweg Herkenbosch
-🕐 Alarmering: 19:39 uur
-📟 Prioriteit: P1
-🚒 Voertuigen: TS Echt, HV Echt
-
-Meer informatie volgt indien beschikbaar.
-
-#Brandweer #Hulpverlening
+/config/brandweerrooster/facebook_template.yaml
 ```
 
-When Brandweerrooster provides explicit vehicle/appliance/unit objects, those are preferred. Otherwise the integration extracts six-digit P2000 vehicle numbers from the incident text and resolves known vehicle codes through `custom_components/brandweerrooster/vehicles.py`. Unknown codes are not guessed.
+The default template is:
 
-## Vehicle mapping
+```yaml
+facebook_template: |
+  🚒 Brandweer {kazerne} uitgerukt
 
-The Brandweerrooster incident API does not currently expose a vehicle-name relation for every incident payload. The integration therefore keeps the known P2000 vehicle-code mapping in a separate `vehicles.py` module. This makes the mapping easy to maintain without changing the incident sensor logic.
+  {uitrukbericht}
+  📍 {locatie}
+  🕐 Alarmering: {tijd}
+  📟 Prioriteit: {prioriteit}
+  🚒 Voertuigen: {voertuigen}
 
-The mapping currently focuses on Limburg-Noord vehicle codes used by the integration. If a new vehicle code is encountered that is not in the mapping, it is retained in the incident source data but is not invented as a vehicle name in the Facebook message.
+  Meer informatie volgt indien beschikbaar.
+
+  #Brandweer #Hulpverlening
+```
+
+**This is the default message used by a new installation.** You can edit the file at any time to change the wording, layout, emojis or hashtags. The integration does not overwrite an existing file.
+
+After changing the file, restart Home Assistant to load the new template.
+
+### Available placeholders
+
+| Placeholder | Example |
+|---|---|
+| `{kazerne}` | `Echt` |
+| `{uitrukbericht}` | `Voor een incident alert is de brandweer gealarmeerd.` |
+| `{incident_type}` | `incident alert` |
+| `{melding}` | Parsed P2000 message text |
+| `{locatie}` | `Kraanbergweg Herkenbosch` |
+| `{straat}` | `Kraanbergweg` |
+| `{plaats}` | `Herkenbosch` |
+| `{tijd}` | `19:39 uur` |
+| `{datum}` | `10-08-2026` |
+| `{prioriteit}` | `P1` |
+| `{voertuigen}` | `TS Echt, HV Echt` |
+| `{incident_id}` | `3008269` |
+| `{created_at}` | Original `created_at` value |
+| `{start_time}` | Original `start_time` value |
+
+Unknown placeholders are left empty and logged as warnings. If a placeholder has no value, its template line is omitted when appropriate. This keeps the default vehicle/time/priority lines clean when the API does not provide that information.
+
+### Example custom template
+
+```yaml
+facebook_template: |
+  🚒 Brandweer {kazerne} uitgerukt
+
+  {uitrukbericht}
+
+  📍 {locatie}
+  ⏰ {tijd}
+  🚒 Eenheden: {voertuigen}
+
+  #Brandweer{kazerne} #Hulpverlening
+```
+
+The template is intentionally plain text. Markdown is not required and the result is copied directly to the clipboard by the dashboard.
+
+## Vehicle names
+
+The integration first uses explicit vehicle/appliance/unit information when Brandweerrooster provides it. If that information is not available, it extracts six-digit P2000 vehicle numbers from the actual incident message and resolves known codes through `custom_components/brandweerrooster/vehicles.py`.
+
+`task_ids` and task names are **not** treated as vehicle names.
+
+Unknown vehicle codes are not guessed. They remain available in the raw incident data but are not invented in the generated Facebook message.
 
 ## API
 
@@ -163,7 +173,7 @@ Brandweerrooster documents API v2 at:
 
 https://www.brandweerrooster.nl/apidocs/
 
-The API supports OAuth2, incidents, incident responses, groups, tasks, users, memberships and skills. Normal incident processing is event-driven through FireServiceRota; the API is only queried for the newly detected incident and for the one-time historical statistics synchronization.
+The API supports OAuth2, incidents, incident responses, groups, tasks, users, memberships and skills.
 
 ## Security
 
@@ -171,4 +181,8 @@ Credentials are stored in the Home Assistant config entry and are not committed 
 
 ## Development
 
-The project is intended as a custom integration and can be installed through HACS. Run Home Assistant's `hassfest` validator from a Home Assistant development checkout before publishing changes.
+The project is intended as a Home Assistant custom integration and can be installed through HACS. Before publishing changes, run Home Assistant's `hassfest` validator and the repository's Python compile validation.
+
+## License
+
+MIT License.
