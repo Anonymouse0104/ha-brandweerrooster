@@ -137,13 +137,21 @@ class ResponseSensor(BaseBrandweerSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         responses = _responses(self.coordinator.data.get("latest_incident") if self.coordinator.data else None)
-        summary = {"dispatched": 0, "no_show": 0, "overig": 0}
+        summary = {"opgekomen": 0, "afgewezen": 0, "overig": 0}
+        positive = {
+            "acknowledged", "dispatched", "responded", "accepted", "coming",
+            "on_the_way", "on-way", "arrived", "arrived_at_station",
+        }
+        negative = {
+            "rejected", "declined", "no_show", "not_coming", "unavailable",
+            "absent", "cancelled", "canceled",
+        }
         for response in responses:
-            status = response.get("reported_status")
-            if status == "dispatched":
-                summary["dispatched"] += 1
-            elif status == "no_show":
-                summary["no_show"] += 1
+            status = str(response.get("reported_status") or response.get("status") or "").strip().lower().replace(" ", "_")
+            if status in positive:
+                summary["opgekomen"] += 1
+            elif status in negative:
+                summary["afgewezen"] += 1
             else:
                 summary["overig"] += 1
         return {"samenvatting": summary, "reacties": responses}
@@ -245,11 +253,11 @@ def _personnel(incident: dict[str, Any] | None, coordinator: BrandweerRoosterCoo
     if not incident:
         return []
     assignments = incident.get("incident_skill_assignments") or []
-    responses = {x.get("user_id"): x for x in _responses(incident)}
+    responses = {str(x.get("user_id")): x for x in _responses(incident) if x.get("user_id") is not None}
     result: list[dict[str, Any]] = []
     for assignment in assignments:
         user_id = assignment.get("user_id")
-        response = responses.get(user_id, {})
+        response = responses.get(str(user_id), {})
         name = response.get("user_name") or response.get("user_nickname") or f"Gebruiker {user_id}"
         skill_ids = assignment.get("skill_ids") or []
         if not skill_ids:

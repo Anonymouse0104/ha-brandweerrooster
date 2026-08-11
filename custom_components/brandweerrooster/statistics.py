@@ -16,6 +16,7 @@ STORAGE_VERSION = 1
 # integration for an accepted/coming response. The additional values make the
 # statistic tolerant of API versions that use a more descriptive status.
 POSITIVE_RESPONSE_STATUSES = {
+    "acknowledged",
     "dispatched",
     "responded",
     "accepted",
