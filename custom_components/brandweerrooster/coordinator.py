@@ -28,6 +28,17 @@ from .facebook_template import FacebookTemplate
 _LOGGER = logging.getLogger(__name__)
 
 
+def _incident_needs_enrichment(incident: dict[str, Any] | None) -> bool:
+    """Return True while the incident still lacks assigned personnel."""
+    if not incident:
+        return False
+    assignments = incident.get("incident_skill_assignments") or []
+    return not any(
+        isinstance(item, dict) and item.get("user_id") is not None
+        for item in assignments
+    )
+
+
 class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Maintain Brandweerrooster data and react to FireServiceRota incidents."""
 
@@ -48,6 +59,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._incident_lock = asyncio.Lock()
         self._history_task: asyncio.Task | None = None
         self._startup_incident_task: asyncio.Task | None = None
+        self._incident_enrichment_task: asyncio.Task | None = None
+        self._incident_enrichment_id: int | None = None
         self._unsub_incident_listener = None
         super().__init__(
             hass,
@@ -122,6 +135,15 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 pass
         self._startup_incident_task = None
 
+        if self._incident_enrichment_task is not None and not self._incident_enrichment_task.done():
+            self._incident_enrichment_task.cancel()
+            try:
+                await self._incident_enrichment_task
+            except asyncio.CancelledError:
+                pass
+        self._incident_enrichment_task = None
+        self._incident_enrichment_id = None
+
     async def _async_startup_incident_check(self) -> None:
         """Pick up an incident when FireServiceRota loads after this integration."""
         for attempt in range(6):
@@ -157,6 +179,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 self.statistics.record_incident(incident, self._current_user, self.person_name)
                 await self.statistics.async_save(history_complete=self.statistics.initialized)
                 self.async_set_updated_data(self._build_data(incident))
+                self._schedule_incident_enrichment(incident)
             except BrandweerRoosterRateLimitError as err:
                 _LOGGER.warning(
                     "Brandweerrooster rate-limit bij incident %s; %s",
@@ -165,6 +188,91 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 )
             except BrandweerRoosterApiError as err:
                 _LOGGER.warning("Incident %s kon niet worden opgehaald: %s", incident_id, err)
+
+    def _schedule_incident_enrichment(self, incident: dict[str, Any]) -> None:
+        """Schedule a short, bounded retry window for incident details.
+
+        Brandweerrooster can create the incident before personnel assignments
+        and responses have been attached. The first API response is therefore
+        not always complete. Retry the same incident for a short period, then
+        stop; this is not continuous polling.
+        """
+        incident_id = incident.get("id")
+        try:
+            incident_id = int(incident_id)
+        except (TypeError, ValueError):
+            return
+
+        if not _incident_needs_enrichment(incident):
+            return
+
+        if (
+            self._incident_enrichment_task is not None
+            and not self._incident_enrichment_task.done()
+            and self._incident_enrichment_id == incident_id
+        ):
+            return
+
+        if self._incident_enrichment_task is not None and not self._incident_enrichment_task.done():
+            self._incident_enrichment_task.cancel()
+
+        self._incident_enrichment_id = incident_id
+        self._incident_enrichment_task = self.hass.async_create_task(
+            self._async_enrich_incident(incident_id),
+            f"{DOMAIN}_incident_enrichment_{self.entry.entry_id}_{incident_id}",
+        )
+
+    async def _async_enrich_incident(self, incident_id: int) -> None:
+        """Refresh a newly received incident until personnel data is available.
+
+        The retry window is intentionally short and bounded to avoid turning
+        the integration into a permanent polling client.
+        """
+        delays = (5, 5, 5, 5, 5)
+        try:
+            for delay in delays:
+                await asyncio.sleep(delay)
+                if incident_id != self._last_incident_id:
+                    return
+
+                try:
+                    incident = await self.api.async_get_incident(incident_id)
+                except BrandweerRoosterRateLimitError as err:
+                    _LOGGER.warning(
+                        "Brandweerrooster rate-limit tijdens verrijking van incident %s; %s",
+                        incident_id,
+                        err,
+                    )
+                    return
+                except BrandweerRoosterApiError as err:
+                    _LOGGER.debug(
+                        "Incident %s kon niet worden verrijkt: %s",
+                        incident_id,
+                        err,
+                    )
+                    continue
+
+                if not self._is_relevant(incident):
+                    return
+
+                await self._async_ensure_reference_data()
+                self.statistics.record_incident(incident, self._current_user, self.person_name)
+                await self.statistics.async_save(history_complete=self.statistics.initialized)
+                self.async_set_updated_data(self._build_data(incident))
+
+                if not _incident_needs_enrichment(incident):
+                    _LOGGER.debug(
+                        "Incident %s succesvol verrijkt met personeelsgegevens",
+                        incident_id,
+                    )
+                    return
+        except asyncio.CancelledError:
+            raise
+        finally:
+            if self._incident_enrichment_id == incident_id:
+                self._incident_enrichment_task = None
+                self._incident_enrichment_id = None
+
 
     async def _async_fetch_incident_from_state(self, state) -> dict[str, Any] | None:
         incident_id = self._incident_id_from_state(state)
