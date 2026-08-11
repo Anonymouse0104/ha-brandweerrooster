@@ -47,6 +47,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._last_incident_id: int | None = None
         self._incident_lock = asyncio.Lock()
         self._history_task: asyncio.Task | None = None
+        self._startup_incident_task: asyncio.Task | None = None
         self._unsub_incident_listener = None
         super().__init__(
             hass,
@@ -81,6 +82,19 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._unsub_incident_listener = async_track_state_change_event(
                 self.hass, [FIRESERVICEROTA_INCIDENT_ENTITY], self._async_fire_service_state_changed
             )
+
+        # FireServiceRota can finish creating sensor.incidents after this
+        # integration has completed its first refresh. In that case there is
+        # no state-change event for us to catch because our listener was not
+        # registered yet. Perform a short, bounded startup check so the
+        # current incident is picked up reliably after a Home Assistant
+        # restart without polling the Brandweerrooster API continuously.
+        if self._startup_incident_task is None or self._startup_incident_task.done():
+            self._startup_incident_task = self.hass.async_create_task(
+                self._async_startup_incident_check(),
+                f"{DOMAIN}_startup_incident_check_{self.entry.entry_id}",
+            )
+
         if not self.statistics.initialized and self._history_task is None:
             self._history_task = self.hass.async_create_task(
                 self._async_initial_history_sync(),
@@ -99,6 +113,27 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             except asyncio.CancelledError:
                 pass
         self._history_task = None
+
+        if self._startup_incident_task is not None and not self._startup_incident_task.done():
+            self._startup_incident_task.cancel()
+            try:
+                await self._startup_incident_task
+            except asyncio.CancelledError:
+                pass
+        self._startup_incident_task = None
+
+    async def _async_startup_incident_check(self) -> None:
+        """Pick up an incident when FireServiceRota loads after this integration."""
+        for attempt in range(6):
+            state = self.hass.states.get(FIRESERVICEROTA_INCIDENT_ENTITY)
+            incident_id = self._incident_id_from_state(state)
+            if incident_id is not None:
+                if incident_id != self._last_incident_id:
+                    await self.async_process_incident(incident_id)
+                return
+
+            if attempt < 5:
+                await asyncio.sleep(5)
 
     async def _async_fire_service_state_changed(self, event: Event) -> None:
         new_state = event.data.get("new_state")

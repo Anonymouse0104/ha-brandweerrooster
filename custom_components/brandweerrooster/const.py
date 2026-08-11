@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 DOMAIN = "brandweerrooster"
-VERSION = "1.3.0"
+VERSION = "1.3.1"
 
 API_BASE_URL = "https://www.brandweerrooster.nl/api/v2"
 OAUTH_TOKEN_URL = "https://www.brandweerrooster.nl/oauth/token"
