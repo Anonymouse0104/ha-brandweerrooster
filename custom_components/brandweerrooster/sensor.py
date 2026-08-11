@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity
@@ -11,22 +12,64 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import DOMAIN
+from .vehicles import resolve_vehicle_names, extract_vehicle_codes
 from .coordinator import BrandweerRoosterCoordinator
 
 
 def _split_p2000(body: str) -> dict[str, str]:
-    result = {"melding": body, "straat": "", "plaats": "", "locatie": body}
-    parts = [part.strip() for part in body.split(" - ") if part.strip()]
+    """Extract a readable location from a Dutch P2000 message."""
+    raw = " ".join(str(body or "").split())
+    without_codes = extract_vehicle_codes(raw, remove=True)
+    without_codes = " ".join(without_codes.split())
+
+    parts = [part.strip() for part in without_codes.split(" - ") if part.strip()]
     if len(parts) >= 3:
-        result.update(
-            melding=parts[0],
-            straat=parts[1],
-            plaats=parts[2],
-            locatie=" - ".join(parts[1:]),
-        )
-    elif len(parts) == 2:
-        result.update(melding=parts[0], locatie=parts[1])
-    return result
+        return {
+            "melding": parts[0],
+            "straat": parts[1],
+            "plaats": parts[2],
+            "locatie": " - ".join(parts[1:]),
+        }
+    if len(parts) == 2:
+        return {
+            "melding": parts[0],
+            "straat": "",
+            "plaats": "",
+            "locatie": parts[1],
+        }
+
+    text = re.sub(r"^P\s*\d+\s+", "", without_codes, flags=re.IGNORECASE)
+    text = re.sub(r"^BLB-\d+\s*", "", text, flags=re.IGNORECASE)
+    words = text.split()
+
+    # Street/highway suffixes cover the common P2000 address forms.
+    suffixes = (
+        "weg", "straat", "laan", "dijk", "plein", "singel", "kade",
+        "brug", "baan", "pad", "ring", "gracht", "hof", "wal", "veld",
+        "steeg", "markt",
+    )
+    location_start = None
+    for index, word in enumerate(words):
+        clean = re.sub(r"[^A-Za-zÀ-ÿ0-9-]", "", word).casefold()
+        if re.match(r"^[AN]\d+[A-Za-z]?$", clean, re.IGNORECASE):
+            location_start = index
+            break
+        if any(clean.endswith(suffix) for suffix in suffixes):
+            location_start = index
+            break
+
+    if location_start is None:
+        location_words = words[-2:] if len(words) >= 2 else words
+    else:
+        location_words = words[location_start:]
+
+    location = " ".join(location_words).strip()
+    return {
+        "melding": text,
+        "straat": location_words[0] if location_words else "",
+        "plaats": location_words[-1] if len(location_words) > 1 else "",
+        "locatie": location,
+    }
 
 
 async def async_setup_entry(
@@ -267,99 +310,69 @@ def _my_response(coordinator: BrandweerRoosterCoordinator) -> dict[str, Any]:
     return {}
 
 
-def _vehicle_name(value: Any) -> str | None:
-    """Extract a useful vehicle/appliance/unit name from one API object."""
-    if isinstance(value, str):
-        name = value.strip()
-        return name or None
-    if not isinstance(value, dict):
-        return None
-    for key in (
-        "vehicle_name",
-        "vehicle",
-        "appliance_name",
-        "appliance",
-        "unit_name",
-        "unit",
-        "vehicle_type",
-        "appliance_type",
-        "name",
-        "title",
-        "description",
-    ):
-        candidate = value.get(key)
-        if isinstance(candidate, dict):
-            candidate = (
-                candidate.get("name")
-                or candidate.get("title")
-                or candidate.get("description")
-            )
-        if isinstance(candidate, str) and candidate.strip():
-            return candidate.strip()
-    return None
-
-
 def _incident_vehicles(
     incident: dict[str, Any] | None,
     coordinator: BrandweerRoosterCoordinator,
 ) -> list[str]:
-    """Return vehicles explicitly attached to the incident.
-
-    We deliberately do not use task names as vehicle names. Brandweerrooster
-    exposes tasks and appliance/vehicle availability as separate concepts.
-    The function accepts several API representations so it remains compatible
-    when the incident payload contains nested vehicle/appliance/unit data.
-    """
+    """Return the vehicles actually present in the P2000/incident alert."""
     if not incident:
         return []
 
-    names: list[str] = []
-    seen: set[str] = set()
+    codes = extract_vehicle_codes(
+        str(incident.get("body") or incident.get("location") or ""),
+    )
 
-    vehicle_keys = {
+    # Prefer explicit vehicle objects when Brandweerrooster supplies them.
+    explicit_keys = {
         "vehicles",
         "vehicle",
         "appliances",
         "appliance",
         "units",
         "unit",
-        "resources",
+        "voertuig_details",
         "assigned_vehicles",
         "assigned_appliances",
         "responding_vehicles",
         "responding_appliances",
-        "alerted_vehicles",
-        "alerted_appliances",
-        "incident_vehicles",
-        "incident_appliances",
     }
+    names: list[str] = []
+    seen: set[str] = set()
 
-    def walk(value: Any, parent_key: str = "") -> None:
+    def walk(value: Any) -> None:
         if isinstance(value, dict):
             for key, child in value.items():
-                key_norm = str(key).lower()
-                if key_norm in vehicle_keys:
-                    if isinstance(child, list):
-                        for item in child:
-                            name = _vehicle_name(item)
-                            if name and name not in seen:
-                                seen.add(name)
-                                names.append(name)
-                    else:
-                        name = _vehicle_name(child)
+                if str(key).casefold() in explicit_keys:
+                    candidates = child if isinstance(child, list) else [child]
+                    for item in candidates:
+                        if isinstance(item, str):
+                            name = item.strip()
+                        elif isinstance(item, dict):
+                            candidate = (
+                                item.get("display_name")
+                                or item.get("vehicle_name")
+                                or item.get("appliance_name")
+                                or item.get("unit_name")
+                                or item.get("name")
+                                or item.get("title")
+                            )
+                            name = str(candidate).strip() if candidate else ""
+                        else:
+                            name = ""
                         if name and name not in seen:
                             seen.add(name)
                             names.append(name)
-                    # Continue walking: some API responses nest details below
-                    # vehicle/appliance objects.
                 if isinstance(child, (dict, list)):
-                    walk(child, key_norm)
+                    walk(child)
         elif isinstance(value, list):
             for item in value:
-                walk(item, parent_key)
+                walk(item)
 
     walk(incident)
-    return names
+    if names:
+        return names
+
+    return resolve_vehicle_names(codes)
 
 
 def _facebook_message(
@@ -371,11 +384,10 @@ def _facebook_message(
 
     body = str(incident.get("body") or incident.get("location") or "Onbekend incident")
     parsed = _split_p2000(body)
-    incident_type = str(incident.get("type") or "uitruk").replace("_", " ")
     priority = incident.get("prio")
     location = parsed["locatie"] or parsed["plaats"] or "onbekende locatie"
 
-    created_at = incident.get("created_at")
+    created_at = incident.get("created_at") or incident.get("start_time")
     alarm_time = ""
     if created_at:
         try:
@@ -388,21 +400,21 @@ def _facebook_message(
 
     vehicles = _incident_vehicles(incident, coordinator)
 
-    station_name = coordinator.entry.title.split(" - ")[0]
+    station_name = _station_display_name(coordinator.entry.title)
     lines = [
         f"🚒 Brandweer {station_name} uitgerukt",
         "",
-        f"Voor een {incident_type} is de brandweer gealarmeerd.",
+        "Voor een incident alert is de brandweer gealarmeerd.",
         f"📍 {location}",
     ]
 
     if alarm_time:
         lines.append(f"🕐 Alarmering: {alarm_time} uur")
-    if priority is not None:
-        priority_text = str(priority).lower().replace("prio", "P")
-        if priority_text.isdigit():
-            priority_text = f"P{priority_text}"
+
+    priority_text = _format_priority(priority)
+    if priority_text:
         lines.append(f"📟 Prioriteit: {priority_text}")
+
     if vehicles:
         lines.append(f"🚒 Voertuigen: {', '.join(vehicles)}")
 
@@ -411,10 +423,34 @@ def _facebook_message(
             "",
             "Meer informatie volgt indien beschikbaar.",
             "",
-            "#Brandweer #Brandweerrooster",
+            "#Brandweer #Hulpverlening",
         ]
     )
     return "\n".join(lines)
+
+
+def _format_priority(value: Any) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip().upper().replace("PRIO", "P")
+    if text in {"1", "P1"}:
+        return "P1"
+    if text in {"2", "P2"}:
+        return "P2"
+    return text
+
+
+def _station_display_name(title: str) -> str:
+    """Turn a configured group title such as 'Echt TS (5421)' into 'Echt'."""
+    name = re.sub(r"\s*\([^)]*\)\s*$", "", str(title or "")).strip()
+    name = re.sub(r"^Brandweer\s+", "", name, flags=re.IGNORECASE).strip()
+    name = re.sub(
+        r"\s+(?:TS|HV|SHE|SIV|Ploeg(?:en)?|Kazerne(?:techniek)?|Groep(?:en)?)$",
+        "",
+        name,
+        flags=re.IGNORECASE,
+    ).strip()
+    return name or "Brandweer"
 
 
 def _responses(incident: dict[str, Any] | None) -> list[dict[str, Any]]:

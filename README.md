@@ -31,6 +31,7 @@ Unofficial custom Home Assistant integration for the Brandweerrooster API v2. Th
 - Lets you select a station/group during setup instead of hard-coding a specific fire station.
 - Retrieves incident details, responses and assigned personnel.
 - Generates a copy-ready Dutch Facebook dispatch message.
+- Resolves known P2000 vehicle numbers to readable vehicle names in the dispatch message.
 - Keeps personal turnout statistics for the configured Brandweerrooster user.
 
 ## Required companion integration: FireServiceRota
@@ -113,7 +114,31 @@ A one-time background history synchronization is used to build the personal life
 
 ## Facebook dispatch message
 
-The `Uitrukbericht` sensor contains a `bericht` attribute with a Dutch, copy-ready Facebook message based on the latest relevant incident.
+The `Uitrukbericht` sensor contains a `bericht` attribute with a Dutch, copy-ready Facebook message based on the latest relevant incident. The vehicle line is based on vehicle codes found in the actual P2000 incident message, not on Brandweerrooster task names.
+
+For example:
+
+```text
+🚒 Brandweer Echt uitgerukt
+
+Voor een incident alert is de brandweer gealarmeerd.
+📍 Kraanbergweg Herkenbosch
+🕐 Alarmering: 19:39 uur
+📟 Prioriteit: P1
+🚒 Voertuigen: TS Echt, HV Echt
+
+Meer informatie volgt indien beschikbaar.
+
+#Brandweer #Hulpverlening
+```
+
+When Brandweerrooster provides explicit vehicle/appliance/unit objects, those are preferred. Otherwise the integration extracts six-digit P2000 vehicle numbers from the incident text and resolves known vehicle codes through `custom_components/brandweerrooster/vehicles.py`. Unknown codes are not guessed.
+
+## Vehicle mapping
+
+The Brandweerrooster incident API does not currently expose a vehicle-name relation for every incident payload. The integration therefore keeps the known P2000 vehicle-code mapping in a separate `vehicles.py` module. This makes the mapping easy to maintain without changing the incident sensor logic.
+
+The mapping currently focuses on Limburg-Noord vehicle codes used by the integration. If a new vehicle code is encountered that is not in the mapping, it is retained in the incident source data but is not invented as a vehicle name in the Facebook message.
 
 ## API
 
