@@ -403,8 +403,7 @@ def _facebook_message(
     # Gebruik de daadwerkelijk geconfigureerde hoofdgroep uit Brandweerrooster.
     # Dit voorkomt dat een oude/aangepaste HA-entrytitel zoals "Ploeg 2"
     # in het Facebookbericht terechtkomt.
-    configured_group_name = coordinator.group_map.get(coordinator.station_group_id, "")
-    station_name = _station_display_name(configured_group_name or coordinator.entry.title)
+    station_name = _station_name_for_incident(incident, coordinator)
     lines = [
         f"🚒 Brandweer {station_name} uitgerukt",
         "",
@@ -442,6 +441,65 @@ def _format_priority(value: Any) -> str:
     if text in {"2", "P2"}:
         return "P2"
     return text
+
+
+def _station_name_for_incident(
+    incident: dict[str, Any] | None,
+    coordinator: BrandweerRoosterCoordinator,
+) -> str:
+    """Determine the fire station from the incident/group data.
+
+    The Home Assistant config-entry title can contain a local crew name such
+    as ``Ploeg 2 (4292)`` and must never be used as the public station name.
+    Prefer the group(s) attached to the incident because those identify the
+    actual alarmed station/main group. Fall back to the configured station
+    group only when the incident does not provide a usable group.
+    """
+    candidate_ids: list[int] = []
+
+    if incident:
+        for value in incident.get("groups") or incident.get("group_ids") or []:
+            try:
+                candidate_ids.append(int(value))
+            except (TypeError, ValueError):
+                continue
+
+        # Some API responses expose the operational group only on responses.
+        if not candidate_ids:
+            for response in incident.get("incident_responses") or []:
+                if not isinstance(response, dict):
+                    continue
+                try:
+                    group_id = int(response.get("group_id"))
+                except (TypeError, ValueError):
+                    continue
+                if group_id not in candidate_ids:
+                    candidate_ids.append(group_id)
+
+    if coordinator.station_group_id and coordinator.station_group_id not in candidate_ids:
+        candidate_ids.append(coordinator.station_group_id)
+
+    # Prefer a real station/main group over crew/task-style names.
+    candidates: list[str] = []
+    for group_id in candidate_ids:
+        name = coordinator.group_map.get(group_id, "")
+        if name:
+            candidates.append(name)
+
+    for name in candidates:
+        normalized = str(name).casefold()
+        if "ploeg" not in normalized and "team" not in normalized:
+            return _station_display_name(name)
+
+    if candidates:
+        return _station_display_name(candidates[0])
+
+    # Last-resort fallback for older config entries. Never expose the raw
+    # entry title if it looks like a crew title.
+    title = coordinator.entry.title
+    if "ploeg" not in str(title).casefold():
+        return _station_display_name(title)
+    return "Brandweer"
 
 
 def _station_display_name(title: str) -> str:

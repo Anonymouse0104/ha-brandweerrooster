@@ -1,3 +1,13 @@
+## v1.1.9
+
+### Kazerne in het uitrukbericht wordt correct bepaald
+
+- De naam bovenaan het automatisch gegenereerde uitrukbericht wordt nu bepaald op basis van de **daadwerkelijke kazerne-/hoofdgroep van het incident**.
+- Een lokale ploegnaam zoals `Ploeg 2 (4292)` wordt nooit meer als kazerne in het Facebookbericht gebruikt.
+- Een incident van `Echt TS` resulteert daardoor in `🚒 Brandweer Echt uitgerukt`.
+- Dezelfde logica werkt generiek voor andere kazernes en Brandweerrooster-accounts.
+- De bestaande voertuigcode-resolutie, alarmeringstijd, prioriteit en `#Brandweer #Hulpverlening` blijven behouden.
+
 ## v1.1.8
 
 - Gebruikt de geselecteerde Brandweerrooster-hoofdgroep om automatisch de kazerne-/stationnaam in het uitrukbericht te tonen.
