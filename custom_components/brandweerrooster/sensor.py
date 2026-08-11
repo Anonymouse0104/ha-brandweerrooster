@@ -400,7 +400,11 @@ def _facebook_message(
 
     vehicles = _incident_vehicles(incident, coordinator)
 
-    station_name = _station_display_name(coordinator.entry.title)
+    # Gebruik de daadwerkelijk geconfigureerde hoofdgroep uit Brandweerrooster.
+    # Dit voorkomt dat een oude/aangepaste HA-entrytitel zoals "Ploeg 2"
+    # in het Facebookbericht terechtkomt.
+    configured_group_name = coordinator.group_map.get(coordinator.station_group_id, "")
+    station_name = _station_display_name(configured_group_name or coordinator.entry.title)
     lines = [
         f"🚒 Brandweer {station_name} uitgerukt",
         "",
