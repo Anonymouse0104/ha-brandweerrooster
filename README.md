@@ -27,14 +27,25 @@ If your FireServiceRota setup uses different entity IDs, adapt the dashboard and
 
 ## Installation with HACS
 
-1. Open HACS.
-2. Add this GitHub repository as a custom repository.
-3. Select **Integration**.
-4. Install **Brandweerrooster API**.
-5. Restart Home Assistant.
-6. Go to **Settings → Devices & services → Add integration**.
-7. Search for **Brandweerrooster API**.
-8. Sign in and select the relevant station/main group.
+The repository is designed for HACS as an **Integration**.
+
+1. Open HACS → **Integrations**.
+2. Open the three-dot menu and choose **Custom repositories**.
+3. Add `https://github.com/Anonymouse0104/ha-brandweerrooster`.
+4. Select **Integration** as the category.
+5. Install **Brandweerrooster API**.
+6. Restart Home Assistant.
+7. Go to **Settings → Devices & services → Add integration**.
+8. Search for **Brandweerrooster API**.
+9. Sign in and select the relevant station/main group.
+
+For a stable installation, use the latest GitHub release rather than an arbitrary development commit.
+
+## Public repository
+
+- Repository: `https://github.com/Anonymouse0104/ha-brandweerrooster`
+- Issues: `https://github.com/Anonymouse0104/ha-brandweerrooster/issues`
+- Releases: `https://github.com/Anonymouse0104/ha-brandweerrooster/releases`
 
 ## Manual installation
 
