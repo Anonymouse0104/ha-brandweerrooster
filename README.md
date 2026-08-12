@@ -13,6 +13,12 @@ Unofficial Home Assistant custom integration for the public Brandweerrooster API
 - Keeps personal turnout statistics for the configured Brandweerrooster user.
 - Stores incident/statistics data locally so it remains available after a Home Assistant restart.
 
+## Personnel selection (v1.3.7)
+
+The **assigned personnel** entity uses `incident_skill_assignments` as the authoritative source for crew membership and function. `incident_responses` is used only to enrich an already-assigned person with response/status information. People present only in `incident_responses` can therefore never appear as crew.
+
+For incident 3010161, the API assignment records contain exactly seven assigned people; this is the source used by the integration.
+
 ## Required companion integration: FireServiceRota
 
 This integration intentionally does **not** replace the official Home Assistant FireServiceRota integration for live availability and accepting/declining an alarm. Install and configure FireServiceRota as well.
@@ -163,7 +169,7 @@ The default template is:
 
 ```yaml
 facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt
+  🚒 Brandweer {kazerne} uitgerukt – {classificatie}
 
   {uitrukbericht}
   📍 {locatie}
@@ -187,6 +193,7 @@ After changing the file, restart Home Assistant to load the new template.
 | `{kazerne}` | `Echt` |
 | `{uitrukbericht}` | `Voor een incident alert is de brandweer gealarmeerd.` |
 | `{incident_type}` | `incident alert` |
+| `{classificatie}` | `Buitenbrand`, `Woningbrand`, etc. |
 | `{melding}` | Parsed P2000 message text |
 | `{locatie}` | `Kraanbergweg Herkenbosch` |
 | `{straat}` | `Kraanbergweg` |

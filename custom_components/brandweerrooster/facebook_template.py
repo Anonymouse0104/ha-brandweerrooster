@@ -21,6 +21,7 @@ DEFAULT_TEMPLATE = """# Brandweerrooster Facebook dispatch message template
 # {kazerne}
 # {uitrukbericht}
 # {incident_type}
+# {classificatie}
 # {melding}
 # {locatie}
 # {straat}
@@ -37,7 +38,7 @@ DEFAULT_TEMPLATE = """# Brandweerrooster Facebook dispatch message template
 # The integration will not overwrite this file after it has been created.
 
 facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt
+  🚒 Brandweer {kazerne} uitgerukt – {classificatie}
 
   {uitrukbericht}
   📍 {locatie}
@@ -50,10 +51,40 @@ facebook_template: |
   #Brandweer #Hulpverlening
 """
 
+
+LEGACY_DEFAULT_TEMPLATES = (
+    """facebook_template: |
+  🚒 Brandweer {kazerne} uitgerukt
+
+  {uitrukbericht}
+  📍 {locatie}
+  🕐 Alarmering: {tijd}
+  📟 Prioriteit: {prioriteit}
+  🚒 Voertuigen: {voertuigen}
+
+  Meer informatie volgt indien beschikbaar.
+
+  #Brandweer #Hulpverlening
+""",
+)
+
+LEGACY_DEFAULT_BODY = """🚒 Brandweer {kazerne} uitgerukt
+
+{uitrukbericht}
+📍 {locatie}
+🕐 Alarmering: {tijd}
+📟 Prioriteit: {prioriteit}
+🚒 Voertuigen: {voertuigen}
+
+Meer informatie volgt indien beschikbaar.
+
+#Brandweer #Hulpverlening"""
+
 PLACEHOLDERS = (
     "kazerne",
     "uitrukbericht",
     "incident_type",
+    "classificatie",
     "melding",
     "locatie",
     "straat",
@@ -86,6 +117,9 @@ class FacebookTemplate:
             if not self.path.exists():
                 self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
             raw_text = self.path.read_text(encoding="utf-8")
+            if raw_text.strip() in {template.strip() for template in LEGACY_DEFAULT_TEMPLATES}:
+                self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
+                raw_text = DEFAULT_TEMPLATE
             raw = yaml.safe_load(raw_text)
         except (OSError, yaml.YAMLError) as err:
             _LOGGER.error(
@@ -97,6 +131,13 @@ class FacebookTemplate:
             return
 
         template: Any = raw.get("facebook_template") if isinstance(raw, dict) else raw
+        if isinstance(template, str) and template.strip() == LEGACY_DEFAULT_BODY.strip():
+            # Upgrade the built-in default template from versions before 1.3.8.
+            # This only changes the untouched default; user-customized layouts,
+            # hashtags, emojis, or wording are preserved.
+            self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
+            raw = yaml.safe_load(DEFAULT_TEMPLATE)
+            template = raw["facebook_template"]
         if not isinstance(template, str) or not template.strip():
             _LOGGER.error(
                 "Facebook template %s does not contain a non-empty 'facebook_template' value. "

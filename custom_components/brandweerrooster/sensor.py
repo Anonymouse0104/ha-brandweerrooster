@@ -139,6 +139,7 @@ async def async_setup_entry(
             UitrukkenDitJaarSensor(coordinator),
             UitrukkenTotaalSensor(coordinator),
             UitrukkenOpgekomenNietIngedeeldSensor(coordinator),
+            DiagnosticIncidentSensor(coordinator),
         ]
     )
 
@@ -162,6 +163,90 @@ class BaseBrandweerSensor(
             "name": coordinator.entry.title,
             "manufacturer": "Brandweerrooster",
             "model": "API",
+        }
+
+
+class DiagnosticIncidentSensor(BaseBrandweerSensor):
+    """Expose raw incident personnel data for API diagnostics.
+
+    This sensor is intentionally read-only. It exposes the raw assignment/response objects and
+    a compact merged view so API data can be compared with the actual crew
+    roster when investigating personnel mismatches.
+    """
+
+    _attr_icon = "mdi:bug-check"
+
+    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
+        super().__init__(coordinator, "API diagnose laatste incident", "api_diagnostic")
+
+    @property
+    def native_value(self) -> str:
+        incident = self.coordinator.data.get("latest_incident") if self.coordinator.data else None
+        if not incident:
+            return "Geen incident"
+        return str(incident.get("id") or "Onbekend")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        incident = self.coordinator.data.get("latest_incident") if self.coordinator.data else None
+        if not incident:
+            return {}
+
+        assignments = [
+            item for item in (incident.get("incident_skill_assignments") or [])
+            if isinstance(item, dict)
+        ]
+        responses = [
+            item for item in (incident.get("incident_responses") or [])
+            if isinstance(item, dict)
+        ]
+        responses_by_user = {
+            str(item.get("user_id")): item
+            for item in responses
+            if item.get("user_id") is not None
+        }
+
+        merged: list[dict[str, Any]] = []
+        for assignment in assignments:
+            user_id = assignment.get("user_id")
+            response = responses_by_user.get(str(user_id), {})
+            merged.append(
+                {
+                    "user_id": user_id,
+                    "naam": (
+                        response.get("user_name")
+                        or response.get("user_nickname")
+                        or assignment.get("user_name")
+                    ),
+                    "membership_id": assignment.get("membership_id") or response.get("membership_id"),
+                    "group_id": assignment.get("group_id") or response.get("group_id"),
+                    "skill_ids": assignment.get("skill_ids"),
+                    "assigned_skill_ids": assignment.get("assigned_skill_ids"),
+                    "original_rank_id": assignment.get("original_rank_id") or response.get("original_rank_id"),
+                    "performed_rank_id": assignment.get("performed_rank_id") or response.get("performed_rank_id"),
+                    "active_duty_function_ids": assignment.get("active_duty_function_ids") or response.get("active_duty_function_ids"),
+                    "assignment_status": assignment.get("status"),
+                    "reported_status": response.get("reported_status"),
+                    "response_status": response.get("status"),
+                    "available_at_incident_creation": response.get("available_at_incident_creation"),
+                    "group_available_at_incident_creation": response.get("group_available_at_incident_creation"),
+                    "on_duty": response.get("on_duty"),
+                    "start_time": assignment.get("start_time") or response.get("start_time"),
+                    "alerted_at": response.get("alerted_at"),
+                }
+            )
+
+        return {
+            "diagnostic_note": "Read-only API diagnostic data. Personnel selection is authoritative from incident_skill_assignments.",
+            "incident_id": incident.get("id"),
+            "incident_created_at": incident.get("created_at"),
+            "incident_start_time": incident.get("start_time"),
+            "incident_keys": sorted(str(key) for key in incident.keys()),
+            "assignment_count": len(assignments),
+            "response_count": len(responses),
+            "personeel_diagnose": merged,
+            "incident_skill_assignments_raw": assignments,
+            "incident_responses_raw": responses,
         }
 
 
@@ -239,6 +324,7 @@ class CrewSensor(BaseBrandweerSensor):
         return {
             "personeel": _personnel(incident, self.coordinator),
             "per_functie": _personnel_by_function(incident, self.coordinator),
+            "personeel_bron": "incident_skill_assignments",
             "laatste_uitruk_voertuigen": _incident_vehicles(incident, self.coordinator),
         }
 
@@ -455,6 +541,7 @@ def _facebook_message(
             pass
 
     incident_type = str(incident.get("type") or "uitruk").replace("_", " ").strip()
+    classification = _incident_classification(parsed["melding"], incident_type)
     location = parsed["locatie"] or parsed["plaats"] or "onbekende locatie"
     vehicles = _incident_vehicles(incident, coordinator)
     station_name = _station_name_for_incident(incident, coordinator)
@@ -463,6 +550,7 @@ def _facebook_message(
         "kazerne": station_name,
         "uitrukbericht": f"Voor een {incident_type} is de brandweer gealarmeerd.",
         "incident_type": incident_type,
+        "classificatie": classification,
         "melding": parsed["melding"],
         "locatie": location,
         "straat": parsed["straat"],
@@ -476,6 +564,38 @@ def _facebook_message(
         "start_time": str(incident.get("start_time") or ""),
     }
     return coordinator.facebook_template.render(values)
+
+
+def _incident_classification(melding: str, incident_type: str = "") -> str:
+    """Return a short, human-readable fire/incident classification.
+
+    The P2000 message is the primary source. Common Brandweerrooster/P2000
+    abbreviations are normalized to readable Dutch labels; unknown values are
+    preserved in a cleaned-up form rather than guessed.
+    """
+    text = " ".join(str(melding or "").split()).strip()
+    lowered = text.casefold()
+
+    mappings = (
+        ("woning", "Woningbrand"),
+        ("buiten", "Buitenbrand"),
+        ("natuur", "Natuurbrand"),
+        ("container", "Containerbrand"),
+        ("voertuig", "Voertuigbrand"),
+        ("schoorsteen", "Schoorsteenbrand"),
+        ("industrie", "Industriebrand"),
+        ("agrar", "Agrarische brand"),
+        ("gebouw", "Gebouwbrand"),
+    )
+    for keyword, label in mappings:
+        if keyword in lowered:
+            return label
+
+    cleaned = re.sub(r"^BR\s*", "", text, flags=re.IGNORECASE).strip(" -:")
+    if cleaned:
+        return cleaned[:1].upper() + cleaned[1:]
+
+    return incident_type.replace("_", " ").strip().capitalize() or "Uitruk"
 
 
 def _format_priority(value: Any) -> str:
@@ -577,54 +697,116 @@ def _personnel(
     incident: dict[str, Any] | None,
     coordinator: BrandweerRoosterCoordinator,
 ) -> list[dict[str, Any]]:
+    """Return the actual assigned crew from incident_skill_assignments.
+
+    ``incident_responses`` is deliberately *not* used to decide who is crew.
+    That API collection contains everyone who received/responded to the
+    alarm, including people who did not show up or were not assigned to the
+    appliance. It may therefore contain substantially more people than the
+    actual crew.
+
+    The assignment records are authoritative for crew membership and skill.
+    A matching response record is used only to enrich an assigned person with
+    their display name/status. The response can never add a person to the
+    crew and can never change their assigned function.
+    """
     if not incident:
         return []
-    assignments = incident.get("incident_skill_assignments") or []
-    responses = {
-        str(x.get("user_id")): x
-        for x in _responses(incident)
-        if x.get("user_id") is not None
-    }
+
+    raw_assignments = incident.get("incident_skill_assignments") or []
+    assignments = [item for item in raw_assignments if isinstance(item, dict)]
+
+    # Responses are only an enrichment lookup keyed by user_id.
+    responses_by_user: dict[str, dict[str, Any]] = {}
+    for response in _responses(incident):
+        user_id = response.get("user_id")
+        if user_id is None:
+            continue
+        # Keep the first response for a user. The selection of crew remains
+        # completely independent from this lookup.
+        responses_by_user.setdefault(str(user_id), response)
+
     result: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+
     for assignment in assignments:
         user_id = assignment.get("user_id")
-        response = responses.get(str(user_id), {})
+        if user_id is None:
+            continue
+
+        response = responses_by_user.get(str(user_id), {})
         name = (
-            response.get("user_name")
+            assignment.get("user_name")
+            or assignment.get("user_nickname")
+            or response.get("user_name")
             or response.get("user_nickname")
             or f"Gebruiker {user_id}"
         )
-        skill_ids = assignment.get("skill_ids") or []
+
+        skill_ids = assignment.get("skill_ids")
+        if not isinstance(skill_ids, list):
+            skill_ids = [skill_ids] if skill_ids not in (None, "") else []
+
         if not skill_ids:
-            result.append(
-                {
-                    "user_id": user_id,
-                    "naam": name,
-                    "functie": "Onbekend",
-                    "status": response.get("status"),
-                    "reported_status": response.get("reported_status"),
-                }
-            )
-        else:
-            for skill_id in skill_ids:
+            key = (str(user_id), "Onbekend")
+            if key not in seen:
+                seen.add(key)
                 result.append(
                     {
                         "user_id": user_id,
-                        "naam": name,
-                        "skill_id": skill_id,
-                        "functie": coordinator.skill_map.get(
-                            int(skill_id), f"Skill {skill_id}"
-                        ),
+                        "naam": str(name),
+                        "functie": "Onbekend",
                         "status": response.get("status"),
                         "reported_status": response.get("reported_status"),
                     }
                 )
-    result.sort(
-        key=lambda item: (
-            str(item.get("functie", "")),
-            str(item.get("naam", "")),
-        )
-    )
+            continue
+
+        for skill_id in skill_ids:
+            try:
+                skill_key = int(skill_id)
+            except (TypeError, ValueError):
+                skill_key = None
+
+            function_name = (
+                coordinator.skill_map.get(skill_key, f"Skill {skill_id}")
+                if skill_key is not None
+                else f"Skill {skill_id}"
+            )
+            key = (str(user_id), str(function_name))
+            if key in seen:
+                continue
+            seen.add(key)
+            result.append(
+                {
+                    "user_id": user_id,
+                    "naam": str(name),
+                    "skill_id": skill_id,
+                    "functie": function_name,
+                    "status": response.get("status"),
+                    "reported_status": response.get("reported_status"),
+                }
+            )
+
+    # Stable operational order instead of alphabetical role order. This also
+    # keeps the dashboard readable when the API returns assignments in a
+    # different order. Unknown/custom skills remain at the end.
+    def role_sort(item: dict[str, Any]) -> tuple[int, str]:
+        role = str(item.get("functie", ""))
+        normalized = role.casefold()
+        if "bevelvoerder" in normalized:
+            order = 0
+        elif "chauffeur" in normalized:
+            order = 1
+        elif "manschap" in normalized:
+            order = 2
+        elif "aspirant" in normalized:
+            order = 3
+        else:
+            order = 4
+        return order, str(item.get("naam", ""))
+
+    result.sort(key=role_sort)
     return result
 
 
