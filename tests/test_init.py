@@ -134,22 +134,44 @@ async def test_two_profiles(hass: HomeAssistant, mock_api) -> None:
     ts_latest = _entity_id(hass, "sensor", "latest_incident", ts.unique_prefix)
     ovd_latest = _entity_id(hass, "sensor", "latest_incident", ovd.unique_prefix)
 
-    # An OvD alarm (task 7121) only reaches the OvD profile.
-    ovd_incident = make_incident(50, group=6101)
-    ovd_incident["task_ids"] = [7121]
-    ovd_incident["incident_responses"][0].update({"status": "pending", "on_duty": True})
-    mock_api["incident"].return_value = ovd_incident
-    hass.states.async_set("sensor.incidents", "OvD", {"id": 50})
+    # Only the standby function has a "Piketdienst" switch.
+    duty_switch = _entity_id(hass, "switch", "standby_duty", ovd.unique_prefix)
+    assert not [
+        e for e in er.async_get(hass).entities.values()
+        if e.domain == "switch" and e.unique_id.startswith(ts.unique_prefix)
+    ]
+    assert hass.states.get(duty_switch).state == "off"
+
+    def ovd_incident(number: int) -> dict:
+        incident = make_incident(number, group=6101)
+        incident["created_at"] = incident["start_time"] = dt_util.utcnow().isoformat()
+        incident["task_ids"] = [7121]
+        incident["incident_responses"][0].update({"status": "expired", "on_duty": False})
+        return incident
+
+    # An OvD alarm (task 7121) only reaches the OvD profile; switch off -> not counted.
+    mock_api["incident"].return_value = ovd_incident(49)
+    hass.states.async_set("sensor.incidents", "OvD", {"id": 49})
     await hass.async_block_till_done()
-    assert hass.states.get(ovd_latest).state == "Incident 50"
+    assert hass.states.get(ovd_latest).state == "Incident 49"
     assert hass.states.get(ts_latest).state == "Geen incident"
+    assert "49" not in ovd.statistics.events
     ovd_event = hass.states.get(_entity_id(hass, "event", "new_incident", ovd.unique_prefix))
     assert ovd_event.attributes["functie"] == "OvD West"
-    # Duty mode: alarmed while on duty counts, even without confirmation in the app.
+    assert ovd_event.attributes["piketdienst"] is False
+
+    # Switch on -> the next OvD alarm counts, whatever Brandweerrooster says about on_duty.
+    await hass.services.async_call("switch", "turn_on", {"entity_id": duty_switch}, blocking=True)
+    assert hass.states.get(duty_switch).state == "on"
+    mock_api["incident"].return_value = ovd_incident(50)
+    hass.states.async_set("sensor.incidents", "OvD", {"id": 50})
+    await hass.async_block_till_done()
     assert ovd.statistics.events["50"]["type"] == "opgekomen_ingedeeld"
+    assert hass.states.get(_entity_id(hass, "event", "new_incident", ovd.unique_prefix)).attributes["piketdienst"] is True
 
     # An incident for both profiles counts once in the combined total.
     both = make_incident(51, group=100)
+    both["created_at"] = both["start_time"] = dt_util.utcnow().isoformat()
     both["task_ids"] = [7121]
     mock_api["incident"].return_value = both
     hass.states.async_set("sensor.incidents", "Beide", {"id": 51})
@@ -161,6 +183,24 @@ async def test_two_profiles(hass: HomeAssistant, mock_api) -> None:
     combined = hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal_alle"))
     assert combined.state == "2"
     assert combined.attributes["per_functieprofiel"] == {"TS Echt": 1, "OvD West": 2}
+
+    # Own corrections, e.g. turnouts from another system.
+    await hass.services.async_call(
+        "number", "set_value",
+        {"entity_id": _entity_id(hass, "number", "correction_total", ts.unique_prefix), "value": 100},
+        blocking=True,
+    )
+    ts_total = hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal", ts.unique_prefix))
+    assert ts_total.state == "101"
+    assert ts_total.attributes["geteld"] == 1
+    assert ts_total.attributes["correctie"] == 100
+    assert hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal_alle")).state == "102"
+
+    # The duty periods and corrections survive a reload.
+    await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    assert hass.states.get(duty_switch).state == "on"
+    assert hass.states.get(_entity_id(hass, "number", "correction_total", ts.unique_prefix)).state == "100"
 
     response = await hass.services.async_call(
         DOMAIN, "generate_message", {"functie": "ovd west"}, blocking=True, return_response=True

@@ -46,6 +46,7 @@ from .const import (
     INCIDENT_ENTITY_GRACE_PERIOD,
     RATE_LIMIT_DEFAULT_RETRY,
     SUBENTRY_PROFILE,
+    TURNOUT_MODE_DUTY,
 )
 from .incident import incident_body, incident_groups, incident_tasks, message_values
 from .profile import Profile
@@ -537,14 +538,16 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             response = find_user_response(detail, self._current_user, self.person_name)
             if response is None:
                 report["zonder_jouw_reactie"] += 1
-                continue
-            report["met_jouw_reactie"] += 1
-            key = (
-                f"{response.get('status') or '-'} / {response.get('reported_status') or '-'}"
-                f" / dienst={response.get('on_duty')}"
-            )
-            statuses: dict[str, int] = report["jouw_statussen"]
-            statuses[key] = statuses.get(key, 0) + 1
+                # Standby duties count by their "Piketdienst" switch, not by a response.
+                relevant = [p for p in relevant if p.turnout_mode == TURNOUT_MODE_DUTY]
+            else:
+                report["met_jouw_reactie"] += 1
+                key = (
+                    f"{response.get('status') or '-'} / {response.get('reported_status') or '-'}"
+                    f" / dienst={response.get('on_duty')}"
+                )
+                statuses: dict[str, int] = report["jouw_statussen"]
+                statuses[key] = statuses.get(key, 0) + 1
             for profile in relevant:
                 report["per_functie"][profile.name]["relevant"] += 1
                 profile.statistics.record_incident(detail, self._current_user, self.person_name, self.skill_map)
@@ -566,6 +569,19 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for profile in targets:
             await profile.statistics.async_save()
         self._refresh_statistics_data()
+
+    async def async_set_duty(self, profile: Profile, on: bool) -> None:
+        """Turn the "Piketdienst" switch of a standby function on or off."""
+        if profile.statistics.set_duty(on):
+            await profile.statistics.async_save()
+            _LOGGER.debug("Piketdienst %s: %s", profile.name, "aan" if on else "uit")
+        self.async_set_updated_data(self._build_data())
+
+    async def async_set_correction(self, profile: Profile, kind: str, value: int) -> None:
+        """Store an own correction of the turnout counters of a function."""
+        profile.statistics.set_correction(kind, value)
+        await profile.statistics.async_save()
+        self.async_set_updated_data(self._build_data())
 
     async def _async_midnight(self, _now: datetime) -> None:
         self._refresh_statistics_data()
@@ -660,7 +676,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         now = dt_util.now()
         for profile in self.profiles.values():
             profile.counts = profile.statistics.counts(now)
-        self.combined = combined_counts([p.statistics.events for p in self.profiles.values()], now)
+        self.combined = combined_counts([p.statistics for p in self.profiles.values()], now)
         return {
             "current_user": self._current_user,
             "latest_incidents": {

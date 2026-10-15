@@ -41,7 +41,7 @@ TURNOUT_MODES = [TURNOUT_MODE_RESPONSE, TURNOUT_MODE_DUTY]
 DEFAULT_INCIDENT_ENTITY = "sensor.incidents"
 DEFAULT_CREW_MIN_SIZE = 6
 
-PLATFORMS = ["binary_sensor", "button", "event", "geo_location", "sensor"]
+PLATFORMS = ["binary_sensor", "button", "event", "geo_location", "number", "sensor", "switch"]
 
 # Throttling for the one-time history synchronisation.
 HISTORY_PAGE_SIZE = 50  # the API returns at most 50 incidents per page

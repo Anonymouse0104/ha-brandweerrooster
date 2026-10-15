@@ -15,7 +15,7 @@ from .incident import (
     classification,
     format_priority,
     incident_body,
-    response_is_negative,
+    normalize_status,
     response_is_positive,
     response_status,
     split_p2000,
@@ -43,17 +43,24 @@ async def async_remove_statistics(hass: HomeAssistant, storage_id: str) -> None:
     await Store(hass, STORAGE_VERSION, storage_key(storage_id)).async_remove()
 
 
-def combined_counts(events_per_profile: list[dict[str, dict[str, Any]]], now: datetime) -> dict[str, Any]:
-    """Turnouts over all profiles; an incident in two profiles counts once."""
+def combined_counts(profiles: list[PersonalIncidentStatistics], now: datetime) -> dict[str, Any]:
+    """Turnouts over all profiles; an incident in two profiles counts once.
+
+    Own corrections of each profile are added on top.
+    """
     now = dt_util.as_local(now)
     turnouts: dict[str, datetime | None] = {}
-    for events in events_per_profile:
-        for key, event in events.items():
+    for stats in profiles:
+        for key, event in stats.events.items():
             if event.get("type") == TYPE_ASSIGNED:
                 turnouts[key] = parse_timestamp(event.get("timestamp"))
     year = sum(1 for ts in turnouts.values() if ts is not None and ts.year == now.year)
     month = sum(1 for ts in turnouts.values() if ts is not None and (ts.year, ts.month) == (now.year, now.month))
-    return {"total": len(turnouts), "year": year, "month": month}
+    return {
+        "total": len(turnouts) + sum(stats.correction_total for stats in profiles),
+        "year": year + sum(stats.correction_year(now) for stats in profiles),
+        "month": month,
+    }
 
 
 class PersonalIncidentStatistics:
@@ -65,6 +72,58 @@ class PersonalIncidentStatistics:
         self.initialized = False
         self.history_page = 1
         self.mode = TURNOUT_MODE_RESPONSE
+        # Standby duty periods from the "Piketdienst" switch: [start, end]
+        # as ISO timestamps; end is None while the switch is on.
+        self.duty_periods: list[list[str | None]] = []
+        # Own corrections: {"total": n, "year": n, "year_of": yyyy}.
+        self.corrections: dict[str, int | None] = {}
+
+    @property
+    def correction_total(self) -> int:
+        return int(self.corrections.get("total") or 0)
+
+    def correction_year(self, now: datetime | None = None) -> int:
+        """The year correction only applies to the year it was entered in."""
+        year = dt_util.as_local(now or dt_util.now()).year
+        return int(self.corrections.get("year") or 0) if self.corrections.get("year_of") == year else 0
+
+    @callback
+    def set_correction(self, kind: str, value: int) -> None:
+        """Add your own number of turnouts (e.g. from another system) to the counters."""
+        if kind == "year":
+            self.corrections["year"] = int(value)
+            self.corrections["year_of"] = dt_util.now().year
+        else:
+            self.corrections["total"] = int(value)
+
+    @property
+    def on_duty(self) -> bool:
+        return bool(self.duty_periods) and self.duty_periods[-1][1] is None
+
+    @property
+    def duty_since(self) -> datetime | None:
+        """Start of the first duty period: alarms before it are never counted."""
+        return parse_timestamp(self.duty_periods[0][0]) if self.duty_periods else None
+
+    def on_duty_at(self, moment: datetime) -> bool:
+        for start, end in self.duty_periods:
+            start_time = parse_timestamp(start)
+            end_time = parse_timestamp(end) if end else None
+            if start_time is not None and start_time <= moment and (end_time is None or moment < end_time):
+                return True
+        return False
+
+    @callback
+    def set_duty(self, on: bool, moment: datetime | None = None) -> bool:
+        """Switch standby duty on or off. Returns True when it changed."""
+        if on == self.on_duty:
+            return False
+        stamp = (moment or dt_util.now()).isoformat()
+        if on:
+            self.duty_periods.append([stamp, None])
+        else:
+            self.duty_periods[-1][1] = stamp
+        return True
 
     @callback
     def set_mode(self, mode: str) -> None:
@@ -83,6 +142,14 @@ class PersonalIncidentStatistics:
             self.events = {str(k): v for k, v in events.items() if isinstance(v, dict)}
         self.initialized = bool(data.get("history_complete"))
         self.mode = str(data.get("mode") or TURNOUT_MODE_RESPONSE)
+        corrections = data.get("corrections")
+        self.corrections = dict(corrections) if isinstance(corrections, dict) else {}
+        periods = data.get("duty_periods") or []
+        self.duty_periods = [
+            [str(p[0]), str(p[1]) if p[1] else None]
+            for p in periods
+            if isinstance(p, list) and len(p) == 2 and p[0]
+        ]
         try:
             self.history_page = max(1, int(data.get("history_page", 1)))
         except (TypeError, ValueError):
@@ -105,6 +172,8 @@ class PersonalIncidentStatistics:
                 "mode": self.mode,
                 "history_complete": self.initialized,
                 "history_page": self.history_page,
+                "duty_periods": self.duty_periods,
+                "corrections": self.corrections,
                 "events": self.events,
             }
         )
@@ -132,20 +201,29 @@ class PersonalIncidentStatistics:
         if incident_id is None or incident.get("_fallback"):
             return False
 
+        key = str(incident_id)
         response = find_user_response(incident, user, person_name)
-        if not response:
-            return False
 
         if self.mode == TURNOUT_MODE_DUTY:
             # Standby duties (OvD, piket) don't confirm their turnout in the
-            # app: every alarm received while on duty counts, unless declined.
-            if _turned_out_on_duty(response):
-                functions = user_functions(incident, user, person_name, skill_map or {})
-                assigned_functions = functions or _response_functions(response, skill_map or {})
-                event_type = TYPE_ASSIGNED
-            else:
+            # app and Brandweerrooster's on_duty flag reflects the volunteer
+            # availability, not the standby duty. The "Piketdienst" switch
+            # decides: an alarm while it was on counts, unless declined.
+            alarm_time = parse_timestamp(incident_timestamp(incident)) or dt_util.now()
+            if not self.on_duty_at(alarm_time):
+                # Not your standby duty: not counted (and an earlier record,
+                # e.g. from another counting mode, is dropped).
+                return self.events.pop(key, None) is not None
+            if response is not None and _declined(response):
                 assigned_functions = None
                 event_type = TYPE_NO_TURNOUT
+            else:
+                functions = user_functions(incident, user, person_name, skill_map or {})
+                assigned_functions = functions or _response_functions(response or {}, skill_map or {})
+                event_type = TYPE_ASSIGNED
+            response = response or {}
+        elif not response:
+            return False
         elif response_is_positive(response):
             assigned_functions = user_functions(incident, user, person_name, skill_map or {})
             event_type = TYPE_ASSIGNED if assigned_functions is not None else TYPE_NOT_ASSIGNED
@@ -166,7 +244,6 @@ class PersonalIncidentStatistics:
             "categorie": category(melding),
             "prioriteit": format_priority(incident.get("prio")),
         }
-        key = str(incident_id)
         if self.events.get(key) == new_event:
             return False
         self.events[key] = new_event
@@ -226,11 +303,17 @@ class PersonalIncidentStatistics:
                 if start <= timestamp.hour < end:
                     dayparts_year[name] += 1
 
+        correction_total = self.correction_total
+        correction_year = self.correction_year(now)
         return {
             "month": month,
             "previous_month": previous,
-            "year": year,
-            "total": total,
+            "year": year + correction_year,
+            "total": total + correction_total,
+            "counted_year": year,
+            "counted_total": total,
+            "correction_year": correction_year,
+            "correction_total": correction_total,
             "not_assigned": not_assigned,
             "response_rate_year": round(100 * turned_out_year / alarmed_year, 1) if alarmed_year else None,
             "alarmed_year": alarmed_year,
@@ -321,14 +404,15 @@ def user_functions(
     return functions if found else None
 
 
-def _turned_out_on_duty(response: dict[str, Any]) -> bool:
-    """Standby mode: alarmed while on duty and not declined."""
-    if response_is_negative(response):
-        return False
-    on_duty = response.get("on_duty")
-    if on_duty is None:
-        on_duty = response.get("available_at_incident_creation")
-    return on_duty is not False
+def _declined(response: dict[str, Any]) -> bool:
+    """An explicit "not coming": rejected the alarm, or registered as no-show afterwards.
+
+    Not responding in time (expired) is normal for standby duties and does not count.
+    """
+    return (
+        normalize_status(response.get("status")) == "rejected"
+        or normalize_status(response.get("reported_status")) == "no_show"
+    )
 
 
 def _response_functions(response: dict[str, Any], skill_map: dict[int, str]) -> list[str]:

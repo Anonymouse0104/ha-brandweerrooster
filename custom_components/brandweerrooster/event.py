@@ -9,6 +9,7 @@ from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BrandweerRoosterConfigEntry
+from .const import TURNOUT_MODE_DUTY
 from .coordinator import BrandweerRoosterCoordinator
 from .entity import ProfileEntity
 from .incident import (
@@ -80,6 +81,9 @@ class BrandweerRoosterIncidentEvent(ProfileEntity, EventEntity):
             "voertuigen": self.vehicles(),
             "bericht": coordinator.render_message(self.profile, incident),
         }
+        if self.profile.turnout_mode == TURNOUT_MODE_DUTY:
+            # Lets automations act only while you have standby duty.
+            data["piketdienst"] = self.profile.statistics.on_duty
         if latitude is not None and longitude is not None:
             data["latitude"] = latitude
             data["longitude"] = longitude

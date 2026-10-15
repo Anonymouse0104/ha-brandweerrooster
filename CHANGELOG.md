@@ -1,5 +1,22 @@
 # Changelog
 
+## 1.5.1
+
+### Standby duty: the Piketdienst switch
+- Functions set to *Standby duty* get a **Piketdienst** switch.
+  - Turn it on while you have duty. An alarm for this function then counts as a turnout, unless you explicitly rejected it or were registered as no-show.
+  - Not responding in time (`expired`) does not matter.
+- Brandweerrooster's `on_duty` flag is no longer used. It reflects your volunteer availability, so it can't tell whether you are the OvD on duty.
+- The on/off periods are stored, so the nightly and full history syncs use the same rule. Alarms from before you first used the switch are not counted.
+- The event data of standby functions contains `piketdienst`.
+- Functions that confirm their turnout in the app are unchanged.
+
+### Own corrections
+- Every function gets **Correctie uitrukken totaal** and **Correctie uitrukken dit jaar** (number fields), to add turnouts from another system or correct an over-count. Negative values are allowed.
+- The year correction goes back to 0 on 1 January.
+- The corrections also count in *Uitrukken totaal (alle functies)*.
+- *Uitrukken totaal* and *Uitrukken dit jaar* show `geteld` and `correctie` as attributes.
+
 ## 1.5.0
 
 ### Functions: one account, several roles

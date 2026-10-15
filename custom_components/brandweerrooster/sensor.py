@@ -270,6 +270,8 @@ class StatisticSensor(ProfileSensor):
         stats = self.statistics
         if self._statistic == "year":
             return {
+                "geteld": stats.get("counted_year", 0),
+                "correctie": stats.get("correction_year", 0),
                 "per_functie": stats.get("functions_year", {}),
                 "per_categorie": stats.get("categories_year", {}),
                 "per_classificatie": stats.get("classifications_year", {}),
@@ -277,9 +279,13 @@ class StatisticSensor(ProfileSensor):
                 "synchronisatie_bezig": self.coordinator.history_sync_running,
             }
         if self._statistic == "total":
+            duty_since = self.profile.statistics.duty_since
             return {
+                "geteld": stats.get("counted_total", 0),
+                "correctie": stats.get("correction_total", 0),
                 "per_functie": stats.get("functions_total", {}),
                 "telwijze": self.profile.turnout_mode,
+                "piketdienst_telt_vanaf": duty_since.isoformat() if duty_since else None,
                 "historie_compleet": self.profile.statistics.initialized,
                 "synchronisatie_bezig": self.coordinator.history_sync_running,
                 # A copy, so Home Assistant sees the change while the report

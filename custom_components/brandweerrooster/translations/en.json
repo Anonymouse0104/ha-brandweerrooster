@@ -31,7 +31,7 @@
         "data_description": {
           "incident_entity": "Usually sensor.incidents from the FireServiceRota integration.",
           "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
-          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+          "turnout_mode": "Choose 'Standby duty' for OvD or other standby duties. The function then gets a 'Piketdienst' switch: turn it on while you have duty. Alarms for this function only count as turnouts while the switch is on. Changing this rebuilds the statistics.",
           "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
         }
       }
@@ -162,6 +162,19 @@
       "incident_location": {
         "name": "Latest incident location"
       }
+    },
+    "switch": {
+      "standby_duty": {
+        "name": "Standby duty"
+      }
+    },
+    "number": {
+      "correction_total": {
+        "name": "Correction turnouts total"
+      },
+      "correction_year": {
+        "name": "Correction turnouts this year"
+      }
     }
   },
   "issues": {
@@ -222,7 +235,7 @@
     "turnout_mode": {
       "options": {
         "response": "Turnout confirmed in the app (crew)",
-        "duty": "Standby duty: every alarm while on duty (OvD/standby)"
+        "duty": "Standby duty: alarms count while the 'Piketdienst' switch is on (OvD/standby)"
       }
     }
   },
@@ -245,7 +258,7 @@
           },
           "data_description": {
             "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
-            "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+            "turnout_mode": "Choose 'Standby duty' for OvD or other standby duties. The function then gets a 'Piketdienst' switch: turn it on while you have duty. Alarms for this function only count as turnouts while the switch is on. Changing this rebuilds the statistics.",
             "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
           }
         },
@@ -260,7 +273,7 @@
           },
           "data_description": {
             "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
-            "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+            "turnout_mode": "Choose 'Standby duty' for OvD or other standby duties. The function then gets a 'Piketdienst' switch: turn it on while you have duty. Alarms for this function only count as turnouts while the switch is on. Changing this rebuilds the statistics.",
             "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
           }
         }

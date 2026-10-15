@@ -28,6 +28,7 @@ from custom_components.brandweerrooster.statistics import (
     TYPE_ASSIGNED,
     TYPE_NO_TURNOUT,
     PersonalIncidentStatistics,
+    combined_counts,
 )
 from custom_components.brandweerrooster.vehicles import (
     DEFAULT_VEHICLE_TEXT,
@@ -173,33 +174,69 @@ async def test_statistics_counts_and_timezone(hass) -> None:
     assert stats.counts(may)["previous_month"] == 1
 
 
-async def test_duty_mode_counts_alarms_while_on_duty(hass) -> None:
+async def test_duty_mode_counts_alarms_while_switch_is_on(hass) -> None:
     stats = PersonalIncidentStatistics(hass, "test")
     stats.initialized = True
     stats.set_mode("duty")
     assert not stats.initialized  # switching mode re-syncs history
+    tz = ZoneInfo("Europe/Amsterdam")
 
-    def ovd_incident(incident_id: int, on_duty: bool | None, status: str = "pending") -> dict:
+    def ovd_incident(incident_id: int, when: str, status: str = "expired", on_duty: bool = False) -> dict:
         incident = make_incident(incident_id, assigned=False)
+        incident["created_at"] = incident["start_time"] = when
         incident["incident_responses"] = [
             {"id": 1, "user_id": 7, "status": status, "reported_status": "unknown", "on_duty": on_duty, "assigned_skill_ids": [1]}
         ]
         return incident
 
-    stats.record_incident(ovd_incident(1, True), USER, "", SKILLS)
-    stats.record_incident(ovd_incident(2, False), USER, "", SKILLS)
-    stats.record_incident(ovd_incident(3, None), USER, "", SKILLS)
-    stats.record_incident(ovd_incident(4, True, "rejected"), USER, "", SKILLS)
+    # Switch on 10:00-18:00.
+    assert stats.set_duty(True, datetime(2026, 4, 1, 10, 0, tzinfo=tz))
+    assert not stats.set_duty(True)
+    assert stats.set_duty(False, datetime(2026, 4, 1, 18, 0, tzinfo=tz))
+
+    # During duty: counts, even when Brandweerrooster says on_duty false and the response expired.
+    assert stats.record_incident(ovd_incident(1, "2026-04-01T12:00:00+02:00"), USER, "", SKILLS)
     assert stats.events["1"]["type"] == TYPE_ASSIGNED
     assert stats.events["1"]["functies"] == ["Bevelvoerder"]
-    assert stats.events["2"]["type"] == TYPE_NO_TURNOUT
-    assert stats.events["3"]["type"] == TYPE_ASSIGNED
-    assert stats.events["4"]["type"] == TYPE_NO_TURNOUT
+    # Outside duty: not recorded at all.
+    assert not stats.record_incident(ovd_incident(2, "2026-04-01T19:00:00+02:00", on_duty=True), USER, "", SKILLS)
+    assert "2" not in stats.events
+    # Explicitly rejected during duty: not a turnout.
+    stats.record_incident(ovd_incident(3, "2026-04-01T13:00:00+02:00", status="rejected"), USER, "", SKILLS)
+    assert stats.events["3"]["type"] == TYPE_NO_TURNOUT
+    # No response at all during duty (not alarmed personally): still counts for the standby function.
+    no_response = ovd_incident(4, "2026-04-01T14:00:00+02:00")
+    no_response["incident_responses"] = []
+    assert stats.record_incident(no_response, USER, "", SKILLS)
+    assert stats.events["4"]["type"] == TYPE_ASSIGNED
+
+    assert stats.duty_since == datetime(2026, 4, 1, 10, 0, tzinfo=tz)
+    assert not stats.on_duty
 
     # The same data in the default mode: nothing was confirmed in the app.
     stats.set_mode("response")
-    stats.record_incident(ovd_incident(1, True), USER, "", SKILLS)
+    stats.record_incident(ovd_incident(1, "2026-04-01T12:00:00+02:00"), USER, "", SKILLS)
     assert stats.events["1"]["type"] == TYPE_NO_TURNOUT
+
+
+async def test_corrections(hass) -> None:
+    stats = PersonalIncidentStatistics(hass, "test")
+    stats.record_incident(make_incident(1), USER, "Jan Jansen", SKILLS)
+    now = dt_util.now()
+    stats.set_correction("total", 120)
+    stats.set_correction("year", 7)
+    counts = stats.counts(now)
+    assert counts["total"] == 121
+    assert counts["counted_total"] == 1
+    assert counts["correction_year"] == 7
+    # The year correction belongs to the year it was entered in.
+    next_year = now.replace(year=now.year + 1)
+    assert stats.counts(next_year)["correction_year"] == 0
+    assert stats.counts(next_year)["total"] == 121
+    other = PersonalIncidentStatistics(hass, "other")
+    other.record_incident(make_incident(1), USER, "Jan Jansen", SKILLS)
+    other.set_correction("total", -1)
+    assert combined_counts([stats, other], now)["total"] == 120
 
 
 async def test_fallback_incident_never_deletes(hass) -> None:

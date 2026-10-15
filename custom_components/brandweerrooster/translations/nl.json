@@ -31,7 +31,7 @@
         "data_description": {
           "incident_entity": "Meestal sensor.incidents van de FireServiceRota-integratie.",
           "group_ids": "Een incident hoort bij deze functie als een van deze groepen of taken erin staat. De eerste groep bepaalt de kazernenaam in het uitrukbericht.",
-          "turnout_mode": "Kies 'Piketdienst' als je OvD of piket bent en je opkomst niet in de app bevestigt. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
+          "turnout_mode": "Kies 'Piketdienst' voor OvD of piket. De functie krijgt dan een schakelaar 'Piketdienst': zet die aan als je dienst hebt. Alarmen voor deze functie tellen alleen als uitruk terwijl de schakelaar aan staat. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
           "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4."
         }
       }
@@ -162,6 +162,19 @@
       "incident_location": {
         "name": "Locatie laatste incident"
       }
+    },
+    "switch": {
+      "standby_duty": {
+        "name": "Piketdienst"
+      }
+    },
+    "number": {
+      "correction_total": {
+        "name": "Correctie uitrukken totaal"
+      },
+      "correction_year": {
+        "name": "Correctie uitrukken dit jaar"
+      }
     }
   },
   "issues": {
@@ -222,7 +235,7 @@
     "turnout_mode": {
       "options": {
         "response": "Opkomst bevestigd in de app (manschappen)",
-        "duty": "Piketdienst: elk alarm waarvoor ik dienst had (OvD/piket)"
+        "duty": "Piketdienst: alarmen tellen als de schakelaar 'Piketdienst' aan staat (OvD/piket)"
       }
     }
   },
@@ -245,7 +258,7 @@
           },
           "data_description": {
             "group_ids": "Een incident hoort bij deze functie als een van deze groepen of taken erin staat. De eerste groep bepaalt de kazernenaam in het uitrukbericht.",
-            "turnout_mode": "Kies 'Piketdienst' als je OvD of piket bent en je opkomst niet in de app bevestigt. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
+            "turnout_mode": "Kies 'Piketdienst' voor OvD of piket. De functie krijgt dan een schakelaar 'Piketdienst': zet die aan als je dienst hebt. Alarmen voor deze functie tellen alleen als uitruk terwijl de schakelaar aan staat. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
             "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4."
           }
         },
@@ -260,7 +273,7 @@
           },
           "data_description": {
             "group_ids": "Een incident hoort bij deze functie als een van deze groepen of taken erin staat. De eerste groep bepaalt de kazernenaam in het uitrukbericht.",
-            "turnout_mode": "Kies 'Piketdienst' als je OvD of piket bent en je opkomst niet in de app bevestigt. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
+            "turnout_mode": "Kies 'Piketdienst' voor OvD of piket. De functie krijgt dan een schakelaar 'Piketdienst': zet die aan als je dienst hebt. Alarmen voor deze functie tellen alleen als uitruk terwijl de schakelaar aan staat. Bij een wijziging worden de statistieken opnieuw opgebouwd.",
             "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4."
           }
         }

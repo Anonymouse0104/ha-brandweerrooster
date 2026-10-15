@@ -43,7 +43,9 @@ Copy `custom_components/brandweerrooster` to `/config/custom_components/brandwee
    - **FireServiceRota incident sensor**: normally `sensor.incidents`.
    - **Function name**: for example `OvD West` or `TS Echt`.
    - **Groups / tasks**: an incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.
-   - **How is a turnout counted?** — *Turnout confirmed in the app* (crew) or *Standby duty* (OvD and other standby duties that don't confirm their turnout in the app: every alarm received while on duty counts, unless declined).
+   - **How is a turnout counted?**
+     - *Turnout confirmed in the app* (crew): counts when you confirmed in the app/pager.
+     - *Standby duty* (OvD, piket): the function gets a **Piketdienst** switch. Turn it on while you have duty; an alarm for this function counts as a turnout while the switch is on, unless you explicitly rejected it. Brandweerrooster's own "on duty" flag is not used, because it reflects your volunteer availability, not your standby duty.
    - **Minimum crew size**: for the *Crew complete* sensor (e.g. 6 for a TS, 4 for a TS-4).
 
 ### More functions
@@ -89,8 +91,11 @@ Entity names below are the Dutch names.
 | **Opkomstpercentage dit jaar** | Share of alarms this year where you turned out |
 | **Laatste uitruk** (timestamp) | Your most recent turnout |
 | **Nieuw incident** (event) | Fires once per new incident of this function |
+| **Piketdienst** (switch, standby functions only) | On while you have duty; alarms only count while it is on. The on/off periods are stored, so history syncs use the same rule. Alarms from before you first used the switch are not counted |
+| **Correctie uitrukken totaal** (number) | Your own number added to *Uitrukken totaal*, e.g. turnouts from another system. Negative values are allowed |
+| **Correctie uitrukken dit jaar** (number) | Your own number added to *Uitrukken dit jaar*; back to 0 on 1 January |
 
-*Uitrukken dit jaar* also has `per_functie`, `per_categorie`, `per_classificatie` and `per_dagdeel`; *Uitrukken totaal* has `per_functie`, `telwijze` and `historie_samenvatting` (what the last history sync found).
+*Uitrukken dit jaar* and *Uitrukken totaal* show `geteld` (counted by the integration) and `correctie` as attributes. *Uitrukken dit jaar* also has `per_functie`, `per_categorie`, `per_classificatie` and `per_dagdeel`; *Uitrukken totaal* has `per_functie`, `telwijze` and `historie_samenvatting` (what the last history sync found).
 
 ### Account
 
@@ -114,7 +119,7 @@ Each function's **Nieuw incident** event entity fires one of these event types:
 - `p2_incident` — a new P2 incident
 - `new_incident` — any other or unknown priority
 
-The event data contains `functie`, `incident_id`, `melding`, `classificatie`, `categorie`, `locatie`, `straat`, `plaats`, `prioriteit`, `kazerne`, `voertuigen`, `bericht` (the dispatch message), timestamps and — when available — `latitude`, `longitude` and `afstand_km`.
+The event data contains `functie`, `incident_id`, `melding`, `classificatie`, `categorie`, `locatie`, `straat`, `plaats`, `prioriteit`, `kazerne`, `voertuigen`, `bericht` (the dispatch message), timestamps and — when available — `latitude`, `longitude` and `afstand_km`. For standby functions it also contains `piketdienst` (whether the switch was on), so an automation can act only while you have duty.
 
 ### Ready-made blueprints
 
