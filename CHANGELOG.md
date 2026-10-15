@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.5.0
+
+### Functions: one account, several roles
+- Every role is now a **function** (for example *OvD West* and *TS Echt*). Add one with **Add function** on the integration page.
+- Each function has its own groups and tasks, way of counting turnouts and minimum crew size.
+- Each function gets its own device with its own entities: latest incident, *Nieuw incident* event, crew, crew complete, dispatch message, map location and statistics. You can automate per function.
+- An incident that matches several functions appears in each of them. The new account sensor **Uitrukken totaal (alle functies)** counts each incident once.
+- The event data and `brandweerrooster.generate_message` include the function (`functie`).
+- The blueprints let you pick one or more functions.
+- The account device holds *API beschikbaar*, *Gebruiker*, *Incident verversen* and *Statistieken opnieuw synchroniseren*.
+
+### Vehicle names from Brandbase
+- Call signs in the P2000 alert (`235331` = `23-5331`) are looked up on Brandbase and shown as short names such as `TST Echt`, `HV Echt` or `OvD`.
+- Brandbase is queried politely: only regions from your own incidents, at most once a week per region, 15 seconds between requests, cached across restarts.
+- *Own vehicle names* in Configure are now optional exceptions, and they take precedence over Brandbase.
+- Numbers without a name are listed in `onbekende_voertuignummers`.
+
+### Upgrade
+- Your existing setup is converted automatically into one function.
+  - Entity IDs, history and statistics stay the same.
+  - The account entities move to a new account device.
+  - An untouched built-in vehicle list is replaced by Brandbase; a changed list is kept as your own exceptions.
+- Requires Home Assistant 2025.8 or newer (unchanged). Also compatible with the device registry changes in Home Assistant 2026.x.
+
 ## 1.4.3
 
 ### New

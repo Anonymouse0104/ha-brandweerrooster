@@ -9,29 +9,30 @@
           "password": "Password"
         }
       },
-      "scope": {
-        "title": "Station and incidents",
-        "description": "Choose your station and optionally additional groups or tasks. Incidents are received from the official FireServiceRota integration; the Brandweerrooster API is only queried when a new incident arrives.",
-        "data": {
-          "person_name": "Your name (for personal statistics)",
-          "station_group_id": "Station / main group",
-          "monitored_group_ids": "Additional groups",
-          "monitored_task_ids": "Additional tasks",
-          "incident_entity": "FireServiceRota incident sensor",
-          "crew_min_size": "Minimum crew size (people)",
-          "turnout_mode": "How is a turnout counted?"
-        },
-        "data_description": {
-          "incident_entity": "Usually sensor.incidents from the FireServiceRota integration.",
-          "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4.",
-          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics."
-        }
-      },
       "reauth_confirm": {
         "title": "Sign in to Brandweerrooster again",
         "description": "The password for {username} is no longer valid. Enter your current Brandweerrooster password.",
         "data": {
           "password": "Password"
+        }
+      },
+      "profile": {
+        "title": "Station and first function",
+        "description": "Enter your details and create your first function (for example 'OvD West' or 'TS Echt'). Later you can add more functions with 'Add function', each with its own sensors.",
+        "data": {
+          "person_name": "Your name (for personal statistics)",
+          "incident_entity": "FireServiceRota incident sensor",
+          "name": "Function name",
+          "group_ids": "Groups",
+          "task_ids": "Tasks",
+          "turnout_mode": "How is a turnout counted?",
+          "crew_min_size": "Minimum crew size (people)"
+        },
+        "data_description": {
+          "incident_entity": "Usually sensor.incidents from the FireServiceRota integration.",
+          "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
+          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+          "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
         }
       }
     },
@@ -40,7 +41,10 @@
       "invalid_auth": "The Brandweerrooster credentials are invalid.",
       "api_error": "Brandweerrooster returned an API error.",
       "unknown": "An unexpected error occurred.",
-      "rate_limited": "Brandweerrooster is temporarily rate limiting API requests. Wait a moment and try again."
+      "rate_limited": "Brandweerrooster is temporarily rate limiting API requests. Wait a moment and try again.",
+      "name_required": "Give the function a name.",
+      "name_exists": "A function with this name already exists.",
+      "no_scope": "Choose at least one group or task."
     },
     "abort": {
       "already_configured": "This Brandweerrooster account is already configured.",
@@ -50,24 +54,20 @@
   "options": {
     "step": {
       "init": {
-        "title": "Brandweerrooster settings",
-        "description": "All settings live here; no YAML files need to be edited. Placeholders for the dispatch message: {placeholders}. A line with an empty placeholder is left out automatically.",
+        "title": "Brandweerrooster account",
+        "description": "Settings for the whole account. Functions (groups, tasks, turnout counting) are changed on the function itself: ⋮ → Reconfigure, or add one with 'Add function'. Placeholders for the dispatch message: {placeholders}. A line with an empty placeholder is left out automatically.",
         "data": {
           "person_name": "Your name (for personal statistics)",
-          "station_group_id": "Station / main group",
-          "monitored_group_ids": "Additional groups",
-          "monitored_task_ids": "Additional tasks",
           "incident_entity": "FireServiceRota incident sensor",
-          "crew_min_size": "Minimum crew size (people)",
           "facebook_template": "Dispatch message template",
-          "vehicle_names": "Vehicle names (P2000 number = name, one per line)",
-          "install_blueprints": "Install automation blueprints",
-          "turnout_mode": "How is a turnout counted?"
+          "brandbase": "Look up vehicle names on Brandbase",
+          "vehicle_names": "Own vehicle names (exceptions)",
+          "install_blueprints": "Install automation blueprints"
         },
         "data_description": {
-          "vehicle_names": "For example: 235331 = TS Echt. Lines starting with # are ignored.",
-          "install_blueprints": "Puts the bundled blueprints (notification, night alarm, dispatch message) under Automations → Blueprints.",
-          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics."
+          "brandbase": "Looks up the vehicles of the P2000 alert on brandbase.hetbrandweerforum.nl (for example 23-5331 → TS Echt). Only regions from your own alerts, at most once a week.",
+          "vehicle_names": "Only needed when you want a different name than Brandbase gives. One per line, for example: 235331 = TS Echt. Lines starting with # are ignored.",
+          "install_blueprints": "Puts the bundled blueprints (notification, night alarm, dispatch message) under Automations → Blueprints."
         }
       }
     },
@@ -123,6 +123,9 @@
       },
       "last_turnout": {
         "name": "Last turnout"
+      },
+      "uitrukken_totaal_alle": {
+        "name": "Turnouts total (all functions)"
       }
     },
     "binary_sensor": {
@@ -170,6 +173,9 @@
   "exceptions": {
     "entry_not_loaded": {
       "message": "No loaded Brandweerrooster configuration was found."
+    },
+    "profile_not_found": {
+      "message": "There is no function named {profile}."
     }
   },
   "services": {
@@ -184,6 +190,10 @@
         "template": {
           "name": "Template",
           "description": "Optional alternative template for this message only."
+        },
+        "functie": {
+          "name": "Function",
+          "description": "Which function (optional; defaults to the function with the latest incident)."
         }
       }
     },
@@ -213,6 +223,55 @@
       "options": {
         "response": "Turnout confirmed in the app (crew)",
         "duty": "Standby duty: every alarm while on duty (OvD/standby)"
+      }
+    }
+  },
+  "config_subentries": {
+    "profile": {
+      "initiate_flow": {
+        "user": "Add function"
+      },
+      "entry_type": "Function",
+      "step": {
+        "user": {
+          "title": "Add function",
+          "description": "A function gets its own device with its own sensors, event and statistics.",
+          "data": {
+            "name": "Function name",
+            "group_ids": "Groups",
+            "task_ids": "Tasks",
+            "turnout_mode": "How is a turnout counted?",
+            "crew_min_size": "Minimum crew size (people)"
+          },
+          "data_description": {
+            "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
+            "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+            "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
+          }
+        },
+        "reconfigure": {
+          "title": "Change function",
+          "data": {
+            "name": "Function name",
+            "group_ids": "Groups",
+            "task_ids": "Tasks",
+            "turnout_mode": "How is a turnout counted?",
+            "crew_min_size": "Minimum crew size (people)"
+          },
+          "data_description": {
+            "group_ids": "An incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.",
+            "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics.",
+            "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
+          }
+        }
+      },
+      "error": {
+        "name_required": "Give the function a name.",
+        "name_exists": "A function with this name already exists.",
+        "no_scope": "Choose at least one group or task."
+      },
+      "abort": {
+        "reconfigure_successful": "The function was updated."
       }
     }
   }

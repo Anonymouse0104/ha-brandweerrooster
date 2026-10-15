@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 import re
 from typing import Any
 
-# Default vehicle list (Limburg-Noord). Users can change, extend or clear this
-# list in the integration options; the options text is the source of truth.
+# The vehicle list of versions before 1.5 (Limburg-Noord). Names now come from
+# Brandbase; the options only hold your own exceptions. This list is used to
+# recognise an untouched pre-1.5 list during migration.
 DEFAULT_VEHICLE_NAMES: dict[str, str] = {
     "235151": "HW Roermond",
     "235191": "DA-OVD Roermond",
@@ -62,14 +64,22 @@ def extract_vehicle_codes(value: Any, *, remove: bool = False) -> list[str] | st
     return codes
 
 
-def resolve_vehicle_names(codes: list[str], mapping: dict[str, str] | None = None) -> list[str]:
-    """Resolve known P2000 vehicle codes to short, Facebook-friendly names."""
-    names = DEFAULT_VEHICLE_NAMES if mapping is None else mapping
+def resolve_vehicle_names(
+    codes: list[str],
+    mapping: dict[str, str] | None = None,
+    lookup: Callable[[str], str | None] | None = None,
+) -> list[str]:
+    """Resolve P2000 vehicle codes to short, Facebook-friendly names.
+
+    Your own names (``mapping``) win; otherwise ``lookup`` (Brandbase) is
+    asked. Unknown codes are never guessed.
+    """
+    names = DEFAULT_VEHICLE_NAMES if mapping is None and lookup is None else (mapping or {})
     result: list[str] = []
     seen: set[str] = set()
     for code in codes:
         normalized = str(code).replace("-", "")
-        name = names.get(normalized)
+        name = names.get(normalized) or (lookup(normalized) if lookup else None)
         if name and name not in seen:
             seen.add(name)
             result.append(name)

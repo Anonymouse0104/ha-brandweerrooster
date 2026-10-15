@@ -16,6 +16,7 @@ from custom_components.brandweerrooster.const import (
     CONF_PERSON_NAME,
     CONF_STATION_GROUP_ID,
     DOMAIN,
+    SUBENTRY_PROFILE,
 )
 
 USER = {"id": 7, "name": "Jan Jansen", "email": "jan@example.com", "phone": "0612345678"}
@@ -83,10 +84,40 @@ def mock_api() -> Generator[dict[str, AsyncMock]]:
         }
 
 
+def profile_subentry(name: str, groups: list[int], tasks: list[int] | None = None, mode: str = "response") -> dict:
+    return {
+        "subentry_type": SUBENTRY_PROFILE,
+        "title": name,
+        "unique_id": None,
+        "data": {"group_ids": groups, "task_ids": tasks or [], "turnout_mode": mode, "crew_min_size": 6},
+    }
+
+
 @pytest.fixture
 def config_entry() -> MockConfigEntry:
+    """An account with one function profile, as created by version 1.5."""
     return MockConfigEntry(
         domain=DOMAIN,
+        version=2,
+        title="Brandweerrooster (Jan Jansen)",
+        unique_id="jan@example.com",
+        data={"username": "jan@example.com", "password": "geheim"},
+        options={
+            CONF_PERSON_NAME: "Jan Jansen",
+            "incident_entity": "sensor.incidents",
+            "brandbase": False,
+            "vehicle_names": "",
+        },
+        subentries_data=[profile_subentry("TS Echt", [100])],
+    )
+
+
+@pytest.fixture
+def legacy_entry() -> MockConfigEntry:
+    """A pre-1.5 entry: one function in the entry itself."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        version=1,
         title="Brandweer Echt TS (100)",
         unique_id="jan@example.com",
         data={
@@ -97,4 +128,5 @@ def config_entry() -> MockConfigEntry:
             CONF_MONITORED_TASK_IDS: [],
             CONF_PERSON_NAME: "Jan Jansen",
         },
+        options={"crew_min_size": 4, "turnout_mode": "duty", "facebook_template": "Eigen {kazerne}"},
     )

@@ -1,4 +1,8 @@
-"""Data coordinator for Brandweerrooster."""
+"""Data coordinator for Brandweerrooster.
+
+One coordinator per account. It listens to FireServiceRota, fetches each new
+incident once and hands it to every function profile it is relevant for.
+"""
 
 from __future__ import annotations
 
@@ -25,17 +29,13 @@ from .api import (
     BrandweerRoosterAuthenticationError,
     BrandweerRoosterRateLimitError,
 )
+from .brandbase import BrandbaseVehicles, short_name
 from .const import (
-    CONF_CREW_MIN_SIZE,
+    CONF_BRANDBASE,
     CONF_FACEBOOK_TEMPLATE,
     CONF_INCIDENT_ENTITY,
-    CONF_MONITORED_GROUP_IDS,
-    CONF_MONITORED_TASK_IDS,
     CONF_PERSON_NAME,
-    CONF_STATION_GROUP_ID,
-    CONF_TURNOUT_MODE,
     CONF_VEHICLE_NAMES,
-    DEFAULT_CREW_MIN_SIZE,
     DEFAULT_INCIDENT_ENTITY,
     DOMAIN,
     ENRICHMENT_DELAYS,
@@ -45,12 +45,12 @@ from .const import (
     HISTORY_PAGE_SIZE,
     INCIDENT_ENTITY_GRACE_PERIOD,
     RATE_LIMIT_DEFAULT_RETRY,
-    TURNOUT_MODE_RESPONSE,
+    SUBENTRY_PROFILE,
 )
-from .helpers import get_setting
-from .incident import incident_groups, incident_tasks, int_set, message_values
-from .statistics import PersonalIncidentStatistics, find_user_response
-from .vehicles import DEFAULT_VEHICLE_TEXT, parse_vehicle_names
+from .incident import incident_body, incident_groups, incident_tasks, message_values
+from .profile import Profile
+from .statistics import combined_counts, find_user_response
+from .vehicles import extract_vehicle_codes, parse_vehicle_names
 
 if TYPE_CHECKING:
     from . import BrandweerRoosterConfigEntry
@@ -71,6 +71,10 @@ def _incident_needs_enrichment(incident: dict[str, Any] | None) -> bool:
     return not any(isinstance(item, dict) and item.get("user_id") is not None for item in assignments)
 
 
+def _has_scope_fields(incident: dict[str, Any]) -> bool:
+    return any(key in incident for key in ("groups", "group_ids", "task_ids"))
+
+
 class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     """Maintain Brandweerrooster data and react to FireServiceRota incidents."""
 
@@ -85,32 +89,35 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             update_interval=None,
             always_update=False,
         )
-        self.entry = entry
         self.api = api
         api.status_listener = self._async_api_status_changed
 
-        self.station_group_id = int(get_setting(entry, CONF_STATION_GROUP_ID, 0) or 0)
-        self.monitored_group_ids = int_set(get_setting(entry, CONF_MONITORED_GROUP_IDS, []))
-        self.monitored_task_ids = int_set(get_setting(entry, CONF_MONITORED_TASK_IDS, []))
-        self.person_name = str(get_setting(entry, CONF_PERSON_NAME, "") or "").strip()
-        self.incident_entity = str(get_setting(entry, CONF_INCIDENT_ENTITY, DEFAULT_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY)
-        self.turnout_mode = str(get_setting(entry, CONF_TURNOUT_MODE, TURNOUT_MODE_RESPONSE) or TURNOUT_MODE_RESPONSE)
-        self.crew_min_size = int(get_setting(entry, CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE) or DEFAULT_CREW_MIN_SIZE)
+        options = entry.options
+        self.person_name = str(options.get(CONF_PERSON_NAME) or "").strip()
+        self.incident_entity = str(options.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY)
         self.message_template = str(
-            get_setting(entry, CONF_FACEBOOK_TEMPLATE, facebook_template.DEFAULT_TEMPLATE)
-            or facebook_template.DEFAULT_TEMPLATE
+            options.get(CONF_FACEBOOK_TEMPLATE) or facebook_template.DEFAULT_TEMPLATE
         )
-        self.vehicle_names = parse_vehicle_names(get_setting(entry, CONF_VEHICLE_NAMES, DEFAULT_VEHICLE_TEXT))
+        self.vehicle_names = parse_vehicle_names(options.get(CONF_VEHICLE_NAMES, ""))
+        self.brandbase: BrandbaseVehicles | None = (
+            BrandbaseVehicles(hass) if options.get(CONF_BRANDBASE, True) else None
+        )
+
+        self.profiles: dict[str, Profile] = {
+            subentry_id: Profile(hass, entry.entry_id, subentry)
+            for subentry_id, subentry in entry.subentries.items()
+            if subentry.subentry_type == SUBENTRY_PROFILE
+        }
 
         self.skill_map: dict[int, str] = {}
         self.group_map: dict[int, str] = {}
         self.task_map: dict[int, str] = {}
-        self.statistics = PersonalIncidentStatistics(hass, entry.entry_id)
         self.history_sync_running = False
         self.history_report: dict[str, Any] | None = None
+        self.combined: dict[str, Any] = {}
         self._current_user: dict[str, Any] = {}
         self._last_incident_id: int | None = None
-        # Incidents for other stations; FireServiceRota updates the same
+        # Incidents for none of the profiles; FireServiceRota updates the same
         # incident often, so don't fetch them again on every state change.
         self._ignored_incident_ids: set[int] = set()
         self._incident_lock = asyncio.Lock()
@@ -127,8 +134,11 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     async def _async_setup(self) -> None:
         """Load persistent state, user data and labels once during setup."""
-        await self.statistics.async_load()
-        self.statistics.set_mode(self.turnout_mode)
+        for profile in self.profiles.values():
+            await profile.statistics.async_load()
+            profile.statistics.set_mode(profile.turnout_mode)
+        if self.brandbase is not None:
+            await self.brandbase.async_load()
         try:
             self._current_user = await self.api.async_get_current_user()
         except BrandweerRoosterAuthenticationError as err:
@@ -146,12 +156,9 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Build initial data from the current FireServiceRota incident."""
         state = self.hass.states.get(self.incident_entity)
         incident_id = self._incident_id_from_state(state)
-        latest: dict[str, Any] | None = None
         if incident_id is not None:
-            latest = await self._async_load_incident(incident_id, state)
-        if latest is None and self.data:
-            latest = self.data.get("latest_incident")
-        return self._build_data(latest)
+            await self._async_load_incident(incident_id, state)
+        return self._build_data()
 
     async def async_start(self) -> None:
         """Start listeners and background work."""
@@ -169,6 +176,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._unsubs.append(
             async_track_time_change(self.hass, self._async_daily_sync, hour=3, minute=17, second=0)
         )
+        if self.brandbase is not None:
+            self._unsubs.append(self.brandbase.async_add_listener(self.async_update_listeners))
 
         self._startup_incident_task = self.config_entry.async_create_background_task(
             self.hass,
@@ -176,7 +185,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"{DOMAIN}_startup_incident_check_{self.config_entry.entry_id}",
         )
 
-        if not self.statistics.initialized:
+        if any(not profile.statistics.initialized for profile in self.profiles.values()):
             self.async_start_history_sync()
 
     async def async_stop(self) -> None:
@@ -188,6 +197,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._history_retry_unsub()
             self._history_retry_unsub = None
         self.api.status_listener = None
+        if self.brandbase is not None:
+            await self.brandbase.async_stop()
         for task in (self._history_task, self._startup_incident_task, self._incident_enrichment_task):
             if task is not None and not task.done():
                 task.cancel()
@@ -235,15 +246,14 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         await self.async_process_incident(incident_id)
 
     async def async_process_incident(self, incident_id: int, *, force: bool = False) -> None:
-        """Fetch and publish exactly one incident from the API."""
+        """Fetch one incident from the API and publish it to its profiles."""
         async with self._incident_lock:
             if incident_id == self._last_incident_id and not force:
                 return
             state = self.hass.states.get(self.incident_entity)
-            incident = await self._async_load_incident(incident_id, state)
-            if incident is None:
+            if not await self._async_load_incident(incident_id, state):
                 return
-            self.async_set_updated_data(self._build_data(incident))
+            self.async_set_updated_data(self._build_data())
             self._schedule_incident_enrichment(incident_id)
 
     async def async_refresh_latest_incident(self) -> None:
@@ -255,52 +265,76 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return
         await self.async_process_incident(incident_id, force=True)
 
-    async def _async_load_incident(self, incident_id: int, state: State | None) -> dict[str, Any] | None:
-        """Fetch an incident; fall back to the FireServiceRota state when the API fails.
+    async def _async_load_incident(self, incident_id: int, state: State | None) -> bool:
+        """Fetch an incident and apply it; fall back to FireServiceRota data when the API fails.
 
-        Returns None when the incident is not relevant for this entry.
+        Returns True when at least one profile received the incident.
         """
         try:
             incident = await self.api.async_get_incident(incident_id)
         except BrandweerRoosterApiError as err:
             if isinstance(err, BrandweerRoosterAuthenticationError):
                 self._start_reauth()
-            current = self.latest_incident
-            if current and current.get("id") == incident_id and not current.get("_fallback"):
+            if incident_id == self._last_incident_id and any(
+                (profile.latest_incident or {}).get("id") == incident_id
+                and not profile.latest_incident.get("_fallback")
+                for profile in self.profiles.values()
+            ):
                 # Keep the complete data we already have for this incident.
-                return current
+                return True
             if type(err) is BrandweerRoosterApiError:
                 # A 4xx (e.g. 403/404) means this account can't see the
                 # incident, so it belongs to another station.
                 _LOGGER.debug("Incident %s is niet zichtbaar voor dit account: %s", incident_id, err)
                 self._ignored_incident_ids.add(incident_id)
-                return None
+                return False
             # FireServiceRota already contains the live alert text. Keep the
-            # incident visible instead of replacing it with "Geen incident".
-            # The enrichment task keeps trying the API.
+            # incident visible; the enrichment task keeps trying the API.
             _LOGGER.warning(
                 "Incident %s kon niet via de API worden opgehaald (%s); FireServiceRota-gegevens worden gebruikt",
                 incident_id,
                 err,
             )
             incident = self._fallback_incident(incident_id, state)
-        if incident is None:
-            return None
-        if not self._is_relevant(incident):
+            if incident is None:
+                return False
+        if not await self._async_apply_incident(incident):
             if not incident.get("_fallback"):
                 self._ignored_incident_ids.add(incident_id)
             _LOGGER.debug("Incident %s is niet relevant voor %s", incident_id, self.config_entry.title)
-            return None
-        await self._async_ensure_reference_data_safe()
+            return False
         self._last_incident_id = incident_id
-        await self._async_record(incident)
-        return incident
+        return True
+
+    async def _async_apply_incident(self, incident: dict[str, Any]) -> bool:
+        """Give an incident to every relevant profile and record statistics."""
+        await self._async_ensure_reference_data_safe()
+        incident_id = incident.get("id")
+        # FireServiceRota fallback data usually has no group/task ids; then
+        # show it on every profile until the API tells which one it is for.
+        broadcast = bool(incident.get("_fallback")) and not _has_scope_fields(incident)
+        applied = False
+        for profile in self.profiles.values():
+            current = profile.latest_incident or {}
+            if broadcast or profile.is_relevant(incident):
+                if current.get("id") != incident_id:
+                    profile.previous_incident = profile.latest_incident
+                profile.latest_incident = incident
+                if profile.statistics.record_incident(
+                    incident, self._current_user, self.person_name, self.skill_map
+                ):
+                    await profile.statistics.async_save()
+                applied = True
+            elif current.get("id") == incident_id and current.get("_fallback"):
+                # The API shows this alarm was not for this function after all.
+                profile.latest_incident = profile.previous_incident
+        return applied
 
     def _fallback_incident(self, incident_id: int, state: State | None) -> dict[str, Any] | None:
         if state is None or self._incident_id_from_state(state) != incident_id:
             return None
         attrs = state.attributes
-        return {
+        incident: dict[str, Any] = {
             "_fallback": True,
             "id": incident_id,
             "body": str(state.state or ""),
@@ -309,14 +343,16 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             "type": attrs.get("type"),
             "created_at": attrs.get("created_at") or attrs.get("start_time"),
             "start_time": attrs.get("start_time") or attrs.get("created_at"),
-            "group_ids": attrs.get("group_ids")
-            or attrs.get("groups")
-            or ([self.station_group_id] if self.station_group_id else []),
-            "task_ids": attrs.get("task_ids") or [],
             "latitude": attrs.get("latitude"),
             "longitude": attrs.get("longitude"),
             "formatted_address": attrs.get("formatted_address"),
         }
+        groups = attrs.get("group_ids") or attrs.get("groups")
+        if groups:
+            incident["groups"] = groups
+        if attrs.get("task_ids"):
+            incident["task_ids"] = attrs.get("task_ids")
+        return incident
 
     def _schedule_incident_enrichment(self, incident_id: int) -> None:
         """Re-fetch a new incident on a bounded, slowing schedule.
@@ -357,14 +393,14 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     _LOGGER.debug("Incident %s kon niet worden verrijkt: %s", incident_id, err)
                     continue
 
-                if not self._is_relevant(incident):
-                    return
-                await self._async_ensure_reference_data_safe()
-                await self._async_record(incident)
-                if incident != (self.data or {}).get("latest_incident"):
-                    self.async_set_updated_data(self._build_data(incident))
+                changed = incident != previous
+                if changed:
+                    if not await self._async_apply_incident(incident):
+                        self.async_set_updated_data(self._build_data())
+                        return
+                    self.async_set_updated_data(self._build_data())
 
-                if not _incident_needs_enrichment(incident) and incident == previous:
+                if not _incident_needs_enrichment(incident) and not changed:
                     _LOGGER.debug("Incident %s is compleet en stabiel; verrijking gestopt", incident_id)
                     return
                 previous = incident
@@ -377,10 +413,6 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     # Statistics
     # ------------------------------------------------------------------
 
-    async def _async_record(self, incident: dict[str, Any]) -> None:
-        if self.statistics.record_incident(incident, self._current_user, self.person_name, self.skill_map):
-            await self.statistics.async_save()
-
     @callback
     def async_start_history_sync(self, *, reset: bool = False) -> None:
         """Start (or restart) the throttled history synchronisation."""
@@ -392,7 +424,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 return
             self._history_task.cancel()
         if reset:
-            self.statistics.reset_history()
+            for profile in self.profiles.values():
+                profile.statistics.reset_history()
         self._history_task = self.config_entry.async_create_background_task(
             self.hass,
             self._async_history_sync(),
@@ -400,13 +433,16 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
 
     async def _async_history_sync(self) -> None:
-        """Synchronise personal history once, in the background, with throttling."""
-        page = self.statistics.history_page
+        """Synchronise history for profiles that need it, in the background, throttled."""
+        targets = [profile for profile in self.profiles.values() if not profile.statistics.initialized]
+        if not targets:
+            return
+        page = min(profile.statistics.history_page for profile in targets)
         first = True
         previous_ids: set[Any] = set()
         cancelled = False
         self.history_sync_running = True
-        report = self.history_report = _new_report(page)
+        report = self.history_report = _new_report(page, targets)
         self.async_update_listeners()
         try:
             while True:
@@ -421,15 +457,16 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 repeated = bool(incidents) and ids == previous_ids
                 if incidents and not repeated:
                     report["paginas"] += 1
-                    await self._async_record_page(incidents, report)
+                    await self._async_record_page(incidents, targets, report)
                     self.async_update_listeners()  # show progress in the attributes
-                done =not incidents or repeated or page >= HISTORY_MAX_PAGES
+                done = not incidents or repeated or page >= HISTORY_MAX_PAGES
                 previous_ids = ids
                 page += 1
-                await self.statistics.async_save(
-                    history_complete=True if done else False,
-                    history_page=1 if done else page,
-                )
+                for profile in targets:
+                    await profile.statistics.async_save(
+                        history_complete=True if done else False,
+                        history_page=1 if done else page,
+                    )
                 if done:
                     report["status"] = "klaar"
                     _LOGGER.info("Historische Brandweerrooster-statistieken zijn gesynchroniseerd: %s", report)
@@ -454,7 +491,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             _LOGGER.exception("Onverwachte fout tijdens historische synchronisatie")
         finally:
             self.history_sync_running = False
-            report["vastgelegd_totaal"] = len(self.statistics.events)
+            for profile in targets:
+                report["per_functie"][profile.name]["vastgelegd"] = len(profile.statistics.events)
             if not cancelled:
                 self._refresh_statistics_data()
 
@@ -464,21 +502,23 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_start_history_sync()
 
     async def _async_record_page(
-        self, incidents: list[dict[str, Any]], report: dict[str, Any] | None = None
+        self,
+        incidents: list[dict[str, Any]],
+        targets: list[Profile],
+        report: dict[str, Any] | None = None,
     ) -> None:
-        """Record a page of incidents, fetching details when the list lacks them."""
-        report = report if report is not None else _new_report(1)
+        """Record a page of incidents for the target profiles, fetching details when needed."""
+        report = report if report is not None else _new_report(1, targets)
         await self._async_ensure_reference_data_safe()
         for incident in incidents:
             report["incidenten"] += 1
             detail = incident
-            needs_detail = incident.get("id") is not None and (
-                not incident.get("incident_responses") or not _has_scope_fields(incident)
-            )
-            if not self._is_relevant(incident) and _has_scope_fields(incident):
+            if _has_scope_fields(incident) and not any(p.is_relevant(incident) for p in targets):
                 _add_sample(report, incident)
                 continue
-            if needs_detail:
+            if incident.get("id") is not None and (
+                not incident.get("incident_responses") or not _has_scope_fields(incident)
+            ):
                 await asyncio.sleep(HISTORY_DETAIL_DELAY)
                 try:
                     detail = await self.api.async_get_incident(int(incident["id"]))
@@ -489,37 +529,42 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     report["detail_mislukt"] += 1
                     continue
                 report["details_opgehaald"] += 1
-                if not self._is_relevant(detail):
-                    _add_sample(report, detail)
-                    continue
+            relevant = [profile for profile in targets if profile.is_relevant(detail)]
+            if not relevant:
+                _add_sample(report, detail)
+                continue
             report["relevant"] += 1
-            if find_user_response(detail, self._current_user, self.person_name) is None:
+            response = find_user_response(detail, self._current_user, self.person_name)
+            if response is None:
                 report["zonder_jouw_reactie"] += 1
                 continue
             report["met_jouw_reactie"] += 1
-            response = find_user_response(detail, self._current_user, self.person_name) or {}
             key = (
                 f"{response.get('status') or '-'} / {response.get('reported_status') or '-'}"
                 f" / dienst={response.get('on_duty')}"
             )
             statuses: dict[str, int] = report["jouw_statussen"]
             statuses[key] = statuses.get(key, 0) + 1
-            self.statistics.record_incident(detail, self._current_user, self.person_name, self.skill_map)
+            for profile in relevant:
+                report["per_functie"][profile.name]["relevant"] += 1
+                profile.statistics.record_incident(detail, self._current_user, self.person_name, self.skill_map)
 
     async def _async_daily_sync(self, _now: datetime) -> None:
         """Catch up on the most recent incidents once a day."""
-        if not self.statistics.initialized:
+        targets = [profile for profile in self.profiles.values() if profile.statistics.initialized]
+        if not targets:
             return
         try:
-            incidents = await self.api.async_get_incidents(per_page=50, page=1)
-            await self._async_record_page(incidents)
+            incidents = await self.api.async_get_incidents(per_page=HISTORY_PAGE_SIZE, page=1)
+            await self._async_record_page(incidents, targets)
         except BrandweerRoosterAuthenticationError:
             self._start_reauth()
             return
         except BrandweerRoosterApiError as err:
             _LOGGER.info("Dagelijkse statistiek-synchronisatie overgeslagen: %s", err)
             return
-        await self.statistics.async_save()
+        for profile in targets:
+            await profile.statistics.async_save()
         self._refresh_statistics_data()
 
     async def _async_midnight(self, _now: datetime) -> None:
@@ -527,27 +572,41 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
 
     @callback
     def _refresh_statistics_data(self) -> None:
-        data = dict(self.data or {})
-        data["statistics"] = self.statistics.counts(dt_util.now())
-        data["current_user"] = self._current_user
-        self.async_set_updated_data(data)
+        self.async_set_updated_data(self._build_data())
 
     # ------------------------------------------------------------------
-    # Messages
+    # Messages and vehicles
     # ------------------------------------------------------------------
 
-    def render_message(self, incident: dict[str, Any] | None, template: str | None = None) -> str:
-        """Render the dispatch message for an incident."""
+    def vehicle_lookup(self, code: str) -> str | None:
+        """Brandbase short name (TS Echt) of a P2000 call sign, if known."""
+        if self.brandbase is None:
+            return None
+        info = self.brandbase.lookup(code)
+        return short_name(info) if info else None
+
+    def render_message(
+        self, profile: Profile, incident: dict[str, Any] | None, template: str | None = None
+    ) -> str:
+        """Render the dispatch message for an incident of a profile."""
         if not incident:
             return ""
         values = message_values(
             incident,
             group_map=self.group_map,
-            station_group_id=self.station_group_id,
-            fallback_title=self.config_entry.title,
+            station_group_id=profile.station_group_id,
+            fallback_title=profile.name,
             vehicle_names=self.vehicle_names,
+            lookup=self.vehicle_lookup,
         )
         return facebook_template.render(template or self.message_template, values)
+
+    def unknown_vehicle_codes(self, incident: dict[str, Any] | None) -> list[str]:
+        """Call signs in the alert without a name (for troubleshooting)."""
+        codes = extract_vehicle_codes(incident_body(incident))
+        return [
+            code for code in codes if code not in self.vehicle_names and self.vehicle_lookup(code) is None
+        ]
 
     # ------------------------------------------------------------------
     # Helpers
@@ -556,14 +615,11 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_ensure_reference_data(self) -> None:
         """Load group/task/skill labels (cached after the first success)."""
         if not self.group_map:
-            groups = await self.api.async_get_groups()
-            self.group_map = _label_map(groups)
+            self.group_map = _label_map(await self.api.async_get_groups())
         if not self.task_map:
-            tasks = await self.api.async_get_tasks()
-            self.task_map = _label_map(tasks)
+            self.task_map = _label_map(await self.api.async_get_tasks())
         if not self.skill_map:
-            skills = await self.api.async_get_skills()
-            self.skill_map = _label_map(skills)
+            self.skill_map = _label_map(await self.api.async_get_skills())
 
     async def _async_ensure_reference_data_safe(self) -> None:
         try:
@@ -600,26 +656,19 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     def current_user(self) -> dict[str, Any]:
         return self._current_user
 
-    @property
-    def latest_incident(self) -> dict[str, Any] | None:
-        return (self.data or {}).get("latest_incident")
-
-    def _build_data(self, latest: dict[str, Any] | None) -> dict[str, Any]:
+    def _build_data(self) -> dict[str, Any]:
+        now = dt_util.now()
+        for profile in self.profiles.values():
+            profile.counts = profile.statistics.counts(now)
+        self.combined = combined_counts([p.statistics.events for p in self.profiles.values()], now)
         return {
             "current_user": self._current_user,
-            "latest_incident": latest,
-            "statistics": self.statistics.counts(dt_util.now()),
+            "latest_incidents": {
+                subentry_id: profile.latest_incident for subentry_id, profile in self.profiles.items()
+            },
+            "counts": {subentry_id: profile.counts for subentry_id, profile in self.profiles.items()},
+            "combined": self.combined,
         }
-
-    def _is_relevant(self, incident: dict[str, Any]) -> bool:
-        if not (self.monitored_group_ids or self.monitored_task_ids or self.station_group_id):
-            return True
-        groups = incident_groups(incident)
-        if self.station_group_id and self.station_group_id in groups:
-            return True
-        if groups & self.monitored_group_ids:
-            return True
-        return bool(incident_tasks(incident) & self.monitored_task_ids)
 
     @staticmethod
     def _incident_id_from_state(state: State | None) -> int | None:
@@ -632,7 +681,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return None
 
 
-def _new_report(page: int) -> dict[str, Any]:
+def _new_report(page: int, targets: list[Profile]) -> dict[str, Any]:
     """Counters that explain the outcome of a history synchronisation."""
     return {
         "status": "bezig",
@@ -645,9 +694,9 @@ def _new_report(page: int) -> dict[str, Any]:
         "relevant": 0,
         "met_jouw_reactie": 0,
         "zonder_jouw_reactie": 0,
-        # "status / reported_status" of your responses, to explain how they are counted.
+        # "status / reported_status / on duty" of your responses.
         "jouw_statussen": {},
-        "vastgelegd_totaal": 0,
+        "per_functie": {profile.name: {"relevant": 0, "vastgelegd": 0} for profile in targets},
         "voorbeelden_niet_relevant": [],
     }
 
@@ -663,10 +712,6 @@ def _add_sample(report: dict[str, Any], incident: dict[str, Any]) -> None:
                 "task_ids": sorted(incident_tasks(incident)),
             }
         )
-
-
-def _has_scope_fields(incident: dict[str, Any]) -> bool:
-    return any(key in incident for key in ("groups", "group_ids", "task_ids"))
 
 
 def _label_map(items: list[dict[str, Any]]) -> dict[int, str]:

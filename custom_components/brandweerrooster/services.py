@@ -20,11 +20,14 @@ from .const import (
     SERVICE_RESYNC_STATISTICS,
 )
 
+from .incident import incident_id
+
 if TYPE_CHECKING:
     from .coordinator import BrandweerRoosterCoordinator
 
 ENTRY_SCHEMA = vol.Schema({vol.Optional(ATTR_CONFIG_ENTRY_ID): cv.string})
-MESSAGE_SCHEMA = ENTRY_SCHEMA.extend({vol.Optional(ATTR_TEMPLATE): cv.string})
+ATTR_PROFILE = "functie"
+MESSAGE_SCHEMA = ENTRY_SCHEMA.extend({vol.Optional(ATTR_TEMPLATE): cv.string, vol.Optional(ATTR_PROFILE): cv.string})
 
 
 def _coordinators(hass: HomeAssistant, call: ServiceCall) -> list[BrandweerRoosterCoordinator]:
@@ -48,10 +51,25 @@ def async_setup_services(hass: HomeAssistant) -> None:
 
     async def generate_message(call: ServiceCall) -> ServiceResponse:
         coordinator = _coordinators(hass, call)[0]
-        incident = coordinator.latest_incident
+        wanted = str(call.data.get(ATTR_PROFILE) or "").strip().casefold()
+        profiles = [
+            profile
+            for profile in coordinator.profiles.values()
+            if not wanted or profile.name.casefold() == wanted
+        ]
+        if not profiles:
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="profile_not_found",
+                translation_placeholders={"profile": str(call.data.get(ATTR_PROFILE))},
+            )
+        # Without a function: the one with the most recent incident.
+        profile = max(profiles, key=lambda p: incident_id(p.latest_incident) or 0)
+        incident = profile.latest_incident
         return {
+            "functie": profile.name,
             "incident_id": incident.get("id") if incident else None,
-            "bericht": coordinator.render_message(incident, call.data.get(ATTR_TEMPLATE)),
+            "bericht": coordinator.render_message(profile, incident, call.data.get(ATTR_TEMPLATE)),
         }
 
     async def refresh_incident(call: ServiceCall) -> None:

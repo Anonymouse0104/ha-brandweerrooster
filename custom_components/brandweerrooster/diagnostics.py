@@ -1,4 +1,4 @@
-"""Diagnostics download for Brandweerrooster (replaces the old diagnostic sensor)."""
+"""Diagnostics download for Brandweerrooster."""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ from typing import Any
 from homeassistant.components.diagnostics import async_redact_data
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant
-from homeassistant.util import dt as dt_util
 
 from . import BrandweerRoosterConfigEntry
 
@@ -33,14 +32,40 @@ TO_REDACT = {
 }
 
 
+def _jsonable_counts(counts: dict[str, Any]) -> dict[str, Any]:
+    result = dict(counts)
+    if result.get("last_turnout") is not None:
+        result["last_turnout"] = result["last_turnout"].isoformat()
+    return result
+
+
 async def async_get_config_entry_diagnostics(
     hass: HomeAssistant, entry: BrandweerRoosterConfigEntry
 ) -> dict[str, Any]:
     coordinator = entry.runtime_data.coordinator
-    incident = coordinator.latest_incident or {}
-    stats = dict(coordinator.statistics.counts(dt_util.now()))
-    if stats.get("last_turnout") is not None:
-        stats["last_turnout"] = stats["last_turnout"].isoformat()
+    profiles: dict[str, Any] = {}
+    for profile in coordinator.profiles.values():
+        incident = profile.latest_incident or {}
+        events = profile.statistics.events.values()
+        profiles[profile.name] = {
+            "group_ids": profile.group_ids_ordered,
+            "task_ids": sorted(profile.task_ids),
+            "turnout_mode": profile.turnout_mode,
+            "crew_min_size": profile.crew_min_size,
+            "legacy_ids": profile.unique_prefix == entry.entry_id,
+            "latest_incident_keys": sorted(str(key) for key in incident),
+            "latest_incident": async_redact_data(incident, TO_REDACT),
+            "unknown_vehicle_codes": coordinator.unknown_vehicle_codes(incident),
+            "statistics": {
+                "history_complete": profile.statistics.initialized,
+                "history_page": profile.statistics.history_page,
+                "mode": profile.statistics.mode,
+                "recorded_incidents": len(profile.statistics.events),
+                "recorded_by_type": dict(Counter(str(e.get("type")) for e in events)),
+                "recorded_by_status": dict(Counter(str(e.get("response_status")) for e in events)),
+                "counts": _jsonable_counts(profile.counts),
+            },
+        }
     return {
         "entry": {
             "data": async_redact_data(dict(entry.data), TO_REDACT),
@@ -53,24 +78,16 @@ async def async_get_config_entry_diagnostics(
         },
         "incident_entity": coordinator.incident_entity,
         "incident_entity_state_present": hass.states.get(coordinator.incident_entity) is not None,
+        "current_user_id_known": coordinator.current_user.get("id") is not None,
+        "brandbase": {
+            "enabled": coordinator.brandbase is not None,
+            "regions_cached": coordinator.brandbase.region_count if coordinator.brandbase else 0,
+            "own_vehicle_names": len(coordinator.vehicle_names),
+        },
         "group_map": coordinator.group_map,
         "skill_map": coordinator.skill_map,
-        "latest_incident_keys": sorted(str(key) for key in incident),
-        "latest_incident": async_redact_data(incident, TO_REDACT),
-        "statistics": {
-            "history_complete": coordinator.statistics.initialized,
-            "history_page": coordinator.statistics.history_page,
-            "history_sync_running": coordinator.history_sync_running,
-            "history_report": coordinator.history_report,
-            "station_group_id": coordinator.station_group_id,
-            "monitored_group_ids": sorted(coordinator.monitored_group_ids),
-            "monitored_task_ids": sorted(coordinator.monitored_task_ids),
-            "current_user_id_known": coordinator.current_user.get("id") is not None,
-            "recorded_incidents": len(coordinator.statistics.events),
-            "recorded_by_type": dict(Counter(str(e.get("type")) for e in coordinator.statistics.events.values())),
-            "recorded_by_status": dict(
-                Counter(str(e.get("response_status")) for e in coordinator.statistics.events.values())
-            ),
-            "counts": stats,
-        },
+        "history_sync_running": coordinator.history_sync_running,
+        "history_report": coordinator.history_report,
+        "combined": coordinator.combined,
+        "profiles": profiles,
     }

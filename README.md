@@ -8,11 +8,13 @@ Everything is configured from the Home Assistant UI — you never have to create
 
 - Logs in with your Brandweerrooster account (OAuth password flow) and asks you to sign in again when your password changes.
 - Receives live incidents from the official **FireServiceRota** integration and fetches the matching Brandweerrooster incident, responses and assigned crew.
-- Shows the latest incident, the assigned crew per function, whether the crew is complete, the responses and your own response.
+- **One account, several functions.** Create a function for every role you have — for example *OvD West* and *TS Echt* — each with its own groups/tasks, its own way of counting turnouts and its own device with sensors and an event. Automate per function.
+- Shows the latest incident, the assigned crew per role, whether the crew is complete, the responses and your own response.
+- Names the alerted vehicles (23-5331 → *TST Echt*) using [Brandbase](https://brandbase.hetbrandweerforum.nl/), with optional own names.
 - Puts the incident on the Home Assistant map and calculates the distance from your home.
-- Fires an event for every new incident (`p1_incident`, `p2_incident`, `new_incident`) for automations.
+- Fires an event for every new incident (`p1_incident`, `p2_incident`, `new_incident`).
 - Generates a copy-ready Facebook dispatch message from a template you edit in the UI.
-- Keeps personal turnout statistics: this month, last month, this year, total, response rate, per function, per category and per time of day.
+- Keeps personal turnout statistics per function: this month, last month, this year, total, response rate, per role, per category and per time of day — plus a combined total over all functions.
 - Ships three ready-made automation blueprints: phone notification, night alarm and dispatch message to your phone.
 
 ## Requirements
@@ -36,58 +38,69 @@ Copy `custom_components/brandweerrooster` to `/config/custom_components/brandwee
 ## Setup
 
 1. Sign in with your Brandweerrooster e-mail address and password.
-2. Choose:
+2. Fill in your account details and your **first function**:
    - **Your name**: used for personal statistics (your Brandweerrooster user ID is used whenever available).
-   - **Station / main group**: the group whose incidents count as "yours".
-   - **Additional groups / tasks** (optional): extra groups or tasks that should also count.
-   - **FireServiceRota incident sensor**: normally `sensor.incidents`; pick another one if yours has a different entity ID.
-   - **How is a turnout counted?**: choose *Standby duty* if you are an OvD or on another standby duty and don't confirm your turnout in the app.
-   - **Minimum crew size**: used for the *Crew complete* sensor (e.g. 6 for a TS, 4 for a TS-4).
+   - **FireServiceRota incident sensor**: normally `sensor.incidents`.
+   - **Function name**: for example `OvD West` or `TS Echt`.
+   - **Groups / tasks**: an incident belongs to this function when one of these groups or tasks is in it. The first group names the station in the dispatch message.
+   - **How is a turnout counted?** — *Turnout confirmed in the app* (crew) or *Standby duty* (OvD and other standby duties that don't confirm their turnout in the app: every alarm received while on duty counts, unless declined).
+   - **Minimum crew size**: for the *Crew complete* sensor (e.g. 6 for a TS, 4 for a TS-4).
 
-### Changing settings later
+### More functions
 
-Everything can be changed afterwards under **Settings → Devices & services → Brandweerrooster → Configure**:
+On the integration page, click **Add function** (or the ⋮ menu of the account). Each function gets its own device with all incident and statistics entities. An incident that matches two functions appears in both.
+
+To change a function: ⋮ next to the function → **Reconfigure**. To remove it: ⋮ → **Delete** (its entities and statistics are removed). Changing *How is a turnout counted?* rebuilds that function's statistics.
+
+### Account settings
+
+**Settings → Devices & services → Brandweerrooster → Configure**:
 
 | Setting | What it does |
 |---|---|
-| Station, groups, tasks | Which incidents are relevant |
+| Your name | Used to find your responses when the user ID is missing |
 | FireServiceRota incident sensor | The entity that triggers incident processing |
-| How is a turnout counted? | *Turnout confirmed in the app* (crew, default) or *Standby duty* (OvD and other standby duties that don't confirm in the app: every alarm received while on duty counts, unless declined). Changing it rebuilds the statistics. |
-| Minimum crew size | Threshold for *Crew complete* |
 | Dispatch message template | The text of the Facebook message (see below) |
-| Vehicle names | P2000 number → readable name, one per line (`235331 = TS Echt`) |
+| Look up vehicle names on Brandbase | On by default |
+| Own vehicle names (exceptions) | Only when you want a different name than Brandbase gives (`235331 = TS Echt`, one per line) |
 | Install automation blueprints | Puts the bundled blueprints in your blueprint list |
 
-The integration reloads automatically after saving.
-
-If your password changes, Home Assistant shows a **Re-authenticate** notification; enter the new password there.
+The integration reloads automatically after saving. If your password changes, Home Assistant shows a **Re-authenticate** notification; enter the new password there.
 
 ## Entities
 
-One device is created per configured account. Entity names below are the Dutch names; the entity IDs are based on the device name.
+Entity names below are the Dutch names.
+
+### Per function
 
 | Entity | Description |
 |---|---|
-| **Laatste incident** (sensor) | `Incident <id>`; attributes: message, classification, category, street, place, location, priority, vehicles, coordinates, distance, crew, source (API or FireServiceRota fallback) |
+| **Laatste incident** (sensor) | `Incident <id>`; attributes: message, classification, category, street, place, location, address, priority, vehicles, unknown vehicle numbers, coordinates, distance, crew, source (API or FireServiceRota fallback) |
 | **Laatste alarmering** (timestamp) | When the latest incident was alarmed |
 | **Afstand tot incident** (km) | Distance from your Home Assistant home location |
 | **Locatie laatste incident** (geo_location) | Shows the incident on the map (only when coordinates are known) |
-| **Ingezet personeel** | Number of assigned people; attributes per function and the crew list |
+| **Ingezet personeel** | Number of assigned people; attributes per role and the crew list |
 | **Bezetting compleet** (binary sensor) | On when there is a commander, a driver and at least the minimum crew size; attributes say what is missing |
 | **Opkomst** | Number of responses; attributes `opgekomen`, `afgewezen`, `overig` |
 | **Mijn opkomst** | Your own response status for the latest incident |
 | **Uitrukbericht** | Attribute `bericht` contains the generated Facebook message |
-| **Uitrukken deze maand / vorige maand / dit jaar / totaal** | Turnouts where you responded positively **and** were assigned |
-| **Opgekomen, niet ingedeeld** | You responded positively but were not assigned |
+| **Uitrukken deze maand / vorige maand / dit jaar / totaal** | Your turnouts for this function (see *How is a turnout counted?*) |
+| **Opgekomen, niet ingedeeld** | App mode: you confirmed but were not assigned |
 | **Opkomstpercentage dit jaar** | Share of alarms this year where you turned out |
 | **Laatste uitruk** (timestamp) | Your most recent turnout |
-| **Nieuw incident** (event) | Fires once per new incident |
+| **Nieuw incident** (event) | Fires once per new incident of this function |
+
+*Uitrukken dit jaar* also has `per_functie`, `per_categorie`, `per_classificatie` and `per_dagdeel`; *Uitrukken totaal* has `per_functie`, `telwijze` and `historie_samenvatting` (what the last history sync found).
+
+### Account
+
+| Entity | Description |
+|---|---|
+| **Uitrukken totaal (alle functies)** | Turnouts over all functions; an incident in two functions counts once. Attributes: this year, this month, per function |
 | **Incident verversen** (button) | Fetches the latest incident again |
 | **Statistieken opnieuw synchroniseren** (button) | Rebuilds the statistics from the full history |
 | **API beschikbaar** (diagnostic) | Whether the last Brandweerrooster API call succeeded; attributes show the last error |
 | **Gebruiker** (diagnostic) | Logged-in user (name and ID only) |
-
-The *Uitrukken dit jaar* sensor also has attributes `per_functie`, `per_categorie`, `per_classificatie` and `per_dagdeel` (night/morning/afternoon/evening), and *Uitrukken totaal* has `per_functie` for all time.
 
 ### Privacy
 
@@ -95,29 +108,29 @@ Crew names and response lists are shown on the entities but are **not stored in 
 
 ## Incident event and automations
 
-The **Nieuw incident** event entity fires one of these event types:
+Each function's **Nieuw incident** event entity fires one of these event types:
 
 - `p1_incident` — a new P1 incident
 - `p2_incident` — a new P2 incident
 - `new_incident` — any other or unknown priority
 
-The event data contains `incident_id`, `melding`, `classificatie`, `categorie`, `locatie`, `straat`, `plaats`, `prioriteit`, `kazerne`, `voertuigen`, `bericht` (the dispatch message), timestamps and — when available — `latitude`, `longitude` and `afstand_km`.
+The event data contains `functie`, `incident_id`, `melding`, `classificatie`, `categorie`, `locatie`, `straat`, `plaats`, `prioriteit`, `kazerne`, `voertuigen`, `bericht` (the dispatch message), timestamps and — when available — `latitude`, `longitude` and `afstand_km`.
 
 ### Ready-made blueprints
 
-When *Install automation blueprints* is enabled (default), these appear under **Settings → Automations & scenes → Blueprints**:
+When *Install automation blueprints* is enabled (default), these appear under **Settings → Automations & scenes → Blueprints**. In each one you pick the function(s) it is for — e.g. the night alarm only for *TS Echt*, a notification only for *OvD West*.
 
 - **Brandweerrooster – melding bij nieuw incident**: push notification to your phone for the priorities you choose.
 - **Brandweerrooster – nachtalarm**: turns on the lights you choose during the night hours you choose, plus optional extra actions.
 - **Brandweerrooster – uitrukbericht naar telefoon**: sends the ready-made Facebook message to your phone a few minutes after the alarm.
 
-Click a blueprint → **Create automation**, pick your phone/lights and save. The integration keeps these files up to date; if you edit one yourself, remove its first line (`# managed-by: brandweerrooster`) and your version is left alone.
+Click a blueprint → **Create automation**, pick your function(s) and phone/lights and save. The integration keeps these files up to date; if you edit one yourself, remove its first line (`# managed-by: brandweerrooster`) and your version is left alone.
 
 ### Actions
 
 | Action | Description |
 |---|---|
-| `brandweerrooster.generate_message` | Returns `{incident_id, bericht}` for the latest incident; optional `template` to use a different text once |
+| `brandweerrooster.generate_message` | Returns `{functie, incident_id, bericht}`; optional `functie` (name) and `template` to use a different text once. Without `functie`: the function with the most recent incident |
 | `brandweerrooster.refresh_incident` | Fetches the latest incident again |
 | `brandweerrooster.resync_statistics` | Rebuilds the statistics from the full history |
 
@@ -151,30 +164,39 @@ Meer informatie volgt indien beschikbaar.
 | `{straat}` / `{plaats}` | `Kraanbergweg` / `Herkenbosch` |
 | `{tijd}` / `{datum}` | `19:39 uur` / `10-08-2026` |
 | `{prioriteit}` | `P1` |
-| `{voertuigen}` | `TS Echt, HV Echt` |
+| `{voertuigen}` | `TST Echt, HV Echt` |
 | `{incident_id}`, `{created_at}`, `{start_time}` | Raw values |
 
 A line whose placeholder has no value is left out, so the vehicle line disappears when no vehicles are known. Unknown placeholders are rejected when saving.
 
-**Upgrading from 1.3.x:** a customised `/config/brandweerrooster/facebook_template.yaml` is imported into the options automatically once. After that the file is no longer used and can be deleted.
-
 ## Vehicle names
 
-Vehicle names come from explicit vehicle data in the incident when Brandweerrooster provides it. Otherwise the six-digit P2000 numbers in the alert are translated using the **Vehicle names** list in the options. The list is pre-filled with Limburg-Noord vehicles; replace or extend it for your own region (`235331 = TS Echt`, one per line, `#` for comments). Unknown numbers are never guessed.
+1. Explicit vehicle data in the incident, when Brandweerrooster provides it.
+2. Otherwise the P2000 call signs in the alert (`235331` = `23-5331`):
+   - your own names from *Own vehicle names* win;
+   - otherwise [Brandbase](https://brandbase.hetbrandweerforum.nl/) is used: type and post become a short name such as `TST Echt`, `HV Echt`, `AL Venlo` or `OvD`.
+
+Brandbase is queried politely: only for regions that appear in your incidents, at most once a week per region, at least 15 seconds between requests, and cached across restarts. Unknown numbers are never guessed; they are listed in the attribute `onbekende_voertuignummers` of *Laatste incident*.
 
 ## How it works (API usage)
 
-- The integration **does not poll** the incident list. It listens to the FireServiceRota incident sensor and only fetches an incident from Brandweerrooster when a new incident ID appears.
+- The integration **does not poll** the incident list. It listens to the FireServiceRota incident sensor and only fetches an incident from Brandweerrooster when a new incident ID appears; that incident is then given to every function it belongs to.
 - Crew assignments and responses are often added minutes after the alarm. After a new incident, the integration fetches it again after 15 s, 30 s, 1, 2, 5, 10 and 20 minutes, and stops early as soon as the crew is known and the data no longer changes.
 - If the API is unavailable or rate-limited during an alarm, the incident is still shown using the FireServiceRota data (attribute `bron: FireServiceRota`) and the API is retried. Your statistics are never changed by this fallback.
-- Statistics are built once from your full history in the background (throttled, resumes after a restart, pauses and retries automatically when rate-limited). A small catch-up runs every night to pick up incidents that happened while Home Assistant was offline and later corrections.
+- Statistics are built once from your full history in the background (throttled, resumes after a restart, pauses and retries automatically when rate-limited). A small catch-up runs every night. A newly added function gets its own history sync.
 - Month and year counters roll over at midnight.
 - If the FireServiceRota incident sensor does not exist, a **Repair** notification explains how to fix it.
+
+## Upgrading
+
+- **From 1.4.x:** your existing setup becomes one function with the same name as before, keeping all entity IDs, history and statistics. The account entities (*API beschikbaar*, *Gebruiker*, buttons) move to a new account device. An untouched built-in vehicle list is replaced by Brandbase; your own changes to it are kept as exceptions.
+- **From 1.3.x:** a customised `/config/brandweerrooster/facebook_template.yaml` is imported into the options automatically once. After that the file is no longer used and can be deleted.
 
 ## Troubleshooting
 
 - **No incidents arrive**: check that FireServiceRota is working and that the right incident sensor is selected under *Configure*. Look under **Settings → Repairs**.
-- **Statistics look wrong**: press **Statistieken opnieuw synchroniseren**.
+- **An incident appears under the wrong function (or none)**: compare `group_ids`/`task_ids` of *Laatste incident* with the function's groups/tasks, or look at `voorbeelden_niet_relevant` in `historie_samenvatting`.
+- **Statistics look wrong**: check *How is a turnout counted?* and press **Statistieken opnieuw synchroniseren**.
 - **Crew is empty**: Brandweerrooster may not have assigned anyone yet; the integration keeps checking for 20 minutes. Use **Incident verversen** to fetch it once more.
 - **Report a bug**: attach the **Download diagnostics** file (it is redacted) to an issue at <https://github.com/Anonymouse0104/ha-brandweerrooster/issues>.
 

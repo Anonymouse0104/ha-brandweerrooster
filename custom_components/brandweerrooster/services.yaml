@@ -4,6 +4,9 @@ generate_message:
       selector:
         config_entry:
           integration: brandweerrooster
+    functie:
+      selector:
+        text:
     template:
       selector:
         text:

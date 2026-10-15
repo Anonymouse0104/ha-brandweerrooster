@@ -8,6 +8,17 @@ API_BASE_URL = "https://www.brandweerrooster.nl/api/v2"
 OAUTH_TOKEN_URL = "https://www.brandweerrooster.nl/oauth/token"
 API_TIMEOUT = 20
 
+# One config entry per Brandweerrooster account; every function (OvD West,
+# TS Echt, ...) is a "profile" subentry with its own device and sensors.
+SUBENTRY_PROFILE = "profile"
+CONF_GROUP_IDS = "group_ids"
+CONF_TASK_IDS = "task_ids"
+# Set on the profile created from a pre-1.5 entry: its entities keep their
+# unique ids (based on the entry id) and its statistics keep their storage.
+CONF_LEGACY_IDS = "legacy_ids"
+CONF_BRANDBASE = "brandbase"
+
+# Pre-1.5 keys (single profile in the entry itself); still read for migration.
 CONF_STATION_GROUP_ID = "station_group_id"
 CONF_MONITORED_GROUP_IDS = "monitored_group_ids"
 CONF_MONITORED_TASK_IDS = "monitored_task_ids"

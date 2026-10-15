@@ -35,11 +35,32 @@ DAYPARTS = (
 )
 
 
+def storage_key(storage_id: str) -> str:
+    return f"{DOMAIN}.statistics_{storage_id}"
+
+
+async def async_remove_statistics(hass: HomeAssistant, storage_id: str) -> None:
+    await Store(hass, STORAGE_VERSION, storage_key(storage_id)).async_remove()
+
+
+def combined_counts(events_per_profile: list[dict[str, dict[str, Any]]], now: datetime) -> dict[str, Any]:
+    """Turnouts over all profiles; an incident in two profiles counts once."""
+    now = dt_util.as_local(now)
+    turnouts: dict[str, datetime | None] = {}
+    for events in events_per_profile:
+        for key, event in events.items():
+            if event.get("type") == TYPE_ASSIGNED:
+                turnouts[key] = parse_timestamp(event.get("timestamp"))
+    year = sum(1 for ts in turnouts.values() if ts is not None and ts.year == now.year)
+    month = sum(1 for ts in turnouts.values() if ts is not None and (ts.year, ts.month) == (now.year, now.month))
+    return {"total": len(turnouts), "year": year, "month": month}
+
+
 class PersonalIncidentStatistics:
     """Persist and calculate personal incident statistics."""
 
-    def __init__(self, hass: HomeAssistant, entry_id: str) -> None:
-        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, f"{DOMAIN}.statistics_{entry_id}")
+    def __init__(self, hass: HomeAssistant, storage_id: str) -> None:
+        self._store: Store[dict[str, Any]] = Store(hass, STORAGE_VERSION, storage_key(storage_id))
         self.events: dict[str, dict[str, Any]] = {}
         self.initialized = False
         self.history_page = 1

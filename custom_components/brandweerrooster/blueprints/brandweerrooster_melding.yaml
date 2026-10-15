@@ -10,10 +10,11 @@ blueprint:
   source_url: https://github.com/Anonymouse0104/ha-brandweerrooster/blob/main/custom_components/brandweerrooster/blueprints/brandweerrooster_melding.yaml
   input:
     incident_event:
-      name: Brandweerrooster-incident
-      description: De entiteit "Nieuw incident" van de Brandweerrooster-integratie.
+      name: Functie(s)
+      description: De entiteit "Nieuw incident" van een of meer functies (bijvoorbeeld alleen OvD West).
       selector:
         entity:
+          multiple: true
           filter:
             - integration: brandweerrooster
               domain: event
@@ -64,7 +65,7 @@ actions:
     domain: mobile_app
     type: notify
     title: >-
-      🚒 {{ trigger.to_state.attributes.prioriteit or '' }}
+      🚒 {{ trigger.to_state.attributes.functie ~ ': ' if trigger.to_state.attributes.functie else '' }}{{ trigger.to_state.attributes.prioriteit or '' }}
       {{ trigger.to_state.attributes.classificatie or 'Brandweeralarm' }}
     message: |-
       {% set a = trigger.to_state.attributes %}{{ a.melding }}

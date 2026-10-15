@@ -1,4 +1,4 @@
-"""Base entity for Brandweerrooster."""
+"""Base entities for Brandweerrooster: account-wide and per function profile."""
 
 from __future__ import annotations
 
@@ -10,11 +10,12 @@ from homeassistant.util import location as location_util
 
 from .const import DOMAIN
 from .coordinator import BrandweerRoosterCoordinator
-from .incident import incident_coordinates
+from .incident import incident_coordinates, incident_vehicles
+from .profile import Profile
 
 
-class BrandweerRoosterEntity(CoordinatorEntity[BrandweerRoosterCoordinator]):
-    """Common device info, naming and unique id."""
+class AccountEntity(CoordinatorEntity[BrandweerRoosterCoordinator]):
+    """Entity of the account device (API status, user, buttons, combined total)."""
 
     _attr_has_entity_name = True
 
@@ -24,21 +25,41 @@ class BrandweerRoosterEntity(CoordinatorEntity[BrandweerRoosterCoordinator]):
         self._attr_translation_key = key
         self._attr_unique_id = f"{entry.entry_id}_{key}"
         self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, entry.entry_id)},
+            identifiers={(DOMAIN, f"{entry.entry_id}_account")},
             name=entry.title,
             manufacturer="Brandweerrooster",
-            model="API",
+            model="Account",
+            entry_type=DeviceEntryType.SERVICE,
+            configuration_url="https://www.brandweerrooster.nl",
+        )
+
+
+class ProfileEntity(CoordinatorEntity[BrandweerRoosterCoordinator]):
+    """Entity of one function profile; one device per profile."""
+
+    _attr_has_entity_name = True
+
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile, key: str) -> None:
+        super().__init__(coordinator)
+        self.profile = profile
+        self._attr_translation_key = key
+        self._attr_unique_id = f"{profile.unique_prefix}_{key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, profile.unique_prefix)},
+            name=profile.name,
+            manufacturer="Brandweerrooster",
+            model="Functie",
             entry_type=DeviceEntryType.SERVICE,
             configuration_url="https://www.brandweerrooster.nl",
         )
 
     @property
     def incident(self) -> dict[str, Any] | None:
-        return self.coordinator.latest_incident
+        return self.profile.latest_incident
 
     @property
     def statistics(self) -> dict[str, Any]:
-        return (self.coordinator.data or {}).get("statistics") or {}
+        return self.profile.counts
 
     def incident_distance_km(self) -> float | None:
         """Distance from the Home Assistant home location to the incident."""
@@ -49,3 +70,6 @@ class BrandweerRoosterEntity(CoordinatorEntity[BrandweerRoosterCoordinator]):
             self.hass.config.latitude, self.hass.config.longitude, latitude, longitude
         )
         return round(meters / 1000, 1) if meters is not None else None
+
+    def vehicles(self) -> list[str]:
+        return incident_vehicles(self.incident, self.coordinator.vehicle_names, self.coordinator.vehicle_lookup)

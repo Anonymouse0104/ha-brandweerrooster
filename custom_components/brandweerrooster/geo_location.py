@@ -1,4 +1,4 @@
-"""Show the latest incident on the Home Assistant map."""
+"""Show the latest incident of each function on the Home Assistant map."""
 
 from __future__ import annotations
 
@@ -10,8 +10,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from . import BrandweerRoosterConfigEntry
 from .const import DOMAIN
 from .coordinator import BrandweerRoosterCoordinator
-from .entity import BrandweerRoosterEntity
+from .entity import ProfileEntity
 from .incident import incident_coordinates
+from .profile import Profile
 
 
 async def async_setup_entry(
@@ -19,18 +20,20 @@ async def async_setup_entry(
     entry: BrandweerRoosterConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    async_add_entities([IncidentLocation(entry.runtime_data.coordinator)])
+    coordinator = entry.runtime_data.coordinator
+    for subentry_id, profile in coordinator.profiles.items():
+        async_add_entities([IncidentLocation(coordinator, profile)], config_subentry_id=subentry_id)
 
 
-class IncidentLocation(BrandweerRoosterEntity, GeolocationEvent):
+class IncidentLocation(ProfileEntity, GeolocationEvent):
     """Location of the latest incident (only when the source provides coordinates)."""
 
     _attr_icon = "mdi:fire"
     _attr_source = DOMAIN
     _attr_unit_of_measurement = UnitOfLength.KILOMETERS
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "incident_location")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "incident_location")
 
     @property
     def available(self) -> bool:

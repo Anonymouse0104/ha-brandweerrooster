@@ -7,6 +7,7 @@ code.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from datetime import datetime
 import re
 from typing import Any
@@ -301,6 +302,7 @@ def alarm_datetime(incident: dict[str, Any] | None) -> datetime | None:
 def incident_vehicles(
     incident: dict[str, Any] | None,
     vehicle_names: dict[str, str] | None = None,
+    lookup: Callable[[str], str | None] | None = None,
 ) -> list[str]:
     """Return the vehicles actually present in the incident/P2000 alert."""
     if not incident:
@@ -358,7 +360,7 @@ def incident_vehicles(
     if names:
         return names
 
-    return resolve_vehicle_names(list(codes), vehicle_names)
+    return resolve_vehicle_names(list(codes), vehicle_names, lookup)
 
 
 def responses(incident: dict[str, Any] | None) -> list[dict[str, Any]]:
@@ -578,6 +580,7 @@ def message_values(
     station_group_id: int,
     fallback_title: str,
     vehicle_names: dict[str, str] | None,
+    lookup: Callable[[str], str | None] | None = None,
 ) -> dict[str, str]:
     """Build the placeholder values for the dispatch message template."""
     body = incident_body(incident) or "Onbekend incident"
@@ -598,7 +601,7 @@ def message_values(
         "tijd": alarm.strftime("%H:%M") + " uur" if alarm else "",
         "datum": alarm.strftime("%d-%m-%Y") if alarm else "",
         "prioriteit": format_priority(incident.get("prio")),
-        "voertuigen": ", ".join(incident_vehicles(incident, vehicle_names)),
+        "voertuigen": ", ".join(incident_vehicles(incident, vehicle_names, lookup)),
         "incident_id": str(incident.get("id") or ""),
         "created_at": str(incident.get("created_at") or ""),
         "start_time": str(incident.get("start_time") or ""),

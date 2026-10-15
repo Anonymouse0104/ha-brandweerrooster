@@ -11,10 +11,11 @@ blueprint:
   source_url: https://github.com/Anonymouse0104/ha-brandweerrooster/blob/main/custom_components/brandweerrooster/blueprints/brandweerrooster_uitrukbericht.yaml
   input:
     incident_event:
-      name: Brandweerrooster-incident
-      description: De entiteit "Nieuw incident" van de Brandweerrooster-integratie.
+      name: Functie(s)
+      description: De entiteit "Nieuw incident" van een of meer functies (bijvoorbeeld alleen OvD West).
       selector:
         entity:
+          multiple: true
           filter:
             - integration: brandweerrooster
               domain: event
@@ -49,6 +50,8 @@ conditions:
 actions:
   - delay: !input delay
   - action: brandweerrooster.generate_message
+    data:
+      functie: "{{ trigger.to_state.attributes.functie | default('', true) }}"
     response_variable: uitruk
   - condition: template
     value_template: "{{ uitruk.bericht | length > 0 }}"

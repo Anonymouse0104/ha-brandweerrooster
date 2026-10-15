@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.util import dt as dt_util
 
 from custom_components.brandweerrooster import facebook_template
+from custom_components.brandweerrooster.brandbase import call_sign, parse_region, short_name, short_type
 from custom_components.brandweerrooster.incident import (
     category,
     classification,
@@ -74,6 +75,22 @@ def test_vehicles_from_custom_mapping() -> None:
     assert incident_vehicles(incident) == ["TS Echt", "HV Echt"]
     assert incident_vehicles(incident, {"235331": "Tankspuit"}) == ["Tankspuit"]
     assert incident_vehicles(incident, {}) == []
+
+
+def test_brandbase_short_names() -> None:
+    assert short_type("Tankautospuit Terreinvaardig (BZ-BP-17)") == "TST"
+    assert short_type("Tankautospuit") == "TS"
+    assert short_type("Hulpverleningsvoertuig Terreinvaardig") == "HV"
+    assert short_type("Dienstvoertuig Officier van Dienst") == "OvD"
+    assert short_type("Dienstvoertuig Hoofdofficier van Dienst Noord") == "HOvD"
+    assert short_type("Onbekend Ding (AB-12)") == "Onbekend Ding"
+    assert short_name({"type": "Autoladder", "station": "Venlo"}) == "AL Venlo"
+    assert call_sign("235331") == "23-5331"
+    page = (
+        "<h3>23-53 Echt</h3><ul>"
+        '<li><a href="https://brandbase.hetbrandweerforum.nl/voertuigen/23-5331-x/">23-5331 Tankautospuit</a></li></ul>'
+    )
+    assert parse_region(page)["23-5331"]["station"] == "Echt"
 
 
 def test_parse_vehicle_text() -> None:

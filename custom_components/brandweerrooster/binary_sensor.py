@@ -11,8 +11,9 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BrandweerRoosterConfigEntry
 from .coordinator import BrandweerRoosterCoordinator
-from .entity import BrandweerRoosterEntity
+from .entity import AccountEntity, ProfileEntity
 from .incident import crew_status, personnel
+from .profile import Profile
 
 
 async def async_setup_entry(
@@ -21,10 +22,12 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data.coordinator
-    async_add_entities([ApiOnlineSensor(coordinator), CrewCompleteSensor(coordinator)])
+    async_add_entities([ApiOnlineSensor(coordinator)])
+    for subentry_id, profile in coordinator.profiles.items():
+        async_add_entities([CrewCompleteSensor(coordinator, profile)], config_subentry_id=subentry_id)
 
 
-class ApiOnlineSensor(BrandweerRoosterEntity, BinarySensorEntity):
+class ApiOnlineSensor(AccountEntity, BinarySensorEntity):
     """Whether the most recent Brandweerrooster API call succeeded."""
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
@@ -48,21 +51,21 @@ class ApiOnlineSensor(BrandweerRoosterEntity, BinarySensorEntity):
         }
 
 
-class CrewCompleteSensor(BrandweerRoosterEntity, BinarySensorEntity):
+class CrewCompleteSensor(ProfileEntity, BinarySensorEntity):
     """Whether the assigned crew has a commander, a driver and enough people."""
 
     _attr_icon = "mdi:account-group-outline"
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "crew_complete")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "crew_complete")
 
     def _status(self) -> dict[str, Any]:
-        crew = personnel(self.coordinator.latest_incident, self.coordinator.skill_map)
-        return crew_status(crew, self.coordinator.crew_min_size)
+        crew = personnel(self.incident, self.coordinator.skill_map)
+        return crew_status(crew, self.profile.crew_min_size)
 
     @property
     def is_on(self) -> bool | None:
-        if not self.coordinator.latest_incident:
+        if not self.incident:
             return None
         return self._status()["compleet"]
 

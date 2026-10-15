@@ -1,4 +1,11 @@
-"""Config, reauthentication and options flow for Brandweerrooster."""
+"""Config, reauthentication, options and function-profile flows for Brandweerrooster.
+
+- Adding the integration signs in to an account and creates its first
+  function profile.
+- "Functie toevoegen" adds more profiles (OvD West, TS Echt, ...), each with
+  its own groups/tasks, turnout counting and sensors.
+- Configure holds the account-wide settings.
+"""
 
 from __future__ import annotations
 
@@ -13,11 +20,12 @@ from homeassistant.config_entries import (
     ConfigEntryState,
     ConfigFlow,
     ConfigFlowResult,
+    ConfigSubentryFlow,
     OptionsFlow,
-    OptionsFlowWithReload,
+    SubentryFlowResult,
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.core import callback
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     BooleanSelector,
@@ -43,26 +51,28 @@ from .api import (
     BrandweerRoosterRateLimitError,
 )
 from .const import (
+    CONF_BRANDBASE,
     CONF_CREW_MIN_SIZE,
     CONF_FACEBOOK_TEMPLATE,
+    CONF_GROUP_IDS,
     CONF_INCIDENT_ENTITY,
     CONF_INSTALL_BLUEPRINTS,
-    CONF_MONITORED_GROUP_IDS,
-    CONF_MONITORED_TASK_IDS,
     CONF_PERSON_NAME,
-    CONF_STATION_GROUP_ID,
+    CONF_TASK_IDS,
     CONF_TURNOUT_MODE,
     CONF_VEHICLE_NAMES,
     DEFAULT_CREW_MIN_SIZE,
     DEFAULT_INCIDENT_ENTITY,
     DOMAIN,
+    SUBENTRY_PROFILE,
     TURNOUT_MODE_RESPONSE,
     TURNOUT_MODES,
 )
-from .helpers import get_setting
-from .vehicles import DEFAULT_VEHICLE_TEXT, invalid_vehicle_lines
+from .vehicles import invalid_vehicle_lines
 
 _LOGGER = logging.getLogger(__name__)
+
+CONF_NAME = "name"
 
 PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWORD))
 MULTILINE_SELECTOR = TextSelector(TextSelectorConfig(multiline=True))
@@ -83,61 +93,58 @@ def _options(items: list[dict[str, Any]], extra_ids: list[int] | None = None) ->
     known = {option["value"] for option in options}
     for item_id in extra_ids or []:
         if str(item_id) not in known:
-            options.append({"value": str(item_id), "label": f"Groep/taak {item_id}"})
+            options.append({"value": str(item_id), "label": str(item_id)})
     return options
 
 
-def _scope_schema(
-    groups: list[dict[str, Any]],
-    tasks: list[dict[str, Any]],
-    defaults: Mapping[str, Any],
-) -> dict[Any, Any]:
-    station = defaults.get(CONF_STATION_GROUP_ID)
-    group_ids = [int(x) for x in defaults.get(CONF_MONITORED_GROUP_IDS, [])]
-    task_ids = [int(x) for x in defaults.get(CONF_MONITORED_TASK_IDS, [])]
-    group_options = _options(groups, ([int(station)] if station else []) + group_ids)
-    task_options = _options(tasks, task_ids)
-    if not group_options:
-        group_options = [{"value": "0", "label": "Geen groepen gevonden"}]
-
-    station_key = (
-        vol.Required(CONF_STATION_GROUP_ID, default=str(station))
-        if station is not None
-        else vol.Required(CONF_STATION_GROUP_ID)
+def _profile_schema(
+    groups: list[dict[str, Any]], tasks: list[dict[str, Any]], defaults: Mapping[str, Any]
+) -> vol.Schema:
+    group_ids = [int(x) for x in defaults.get(CONF_GROUP_IDS, [])]
+    task_ids = [int(x) for x in defaults.get(CONF_TASK_IDS, [])]
+    return vol.Schema(
+        {
+            vol.Required(CONF_NAME, default=defaults.get(CONF_NAME, "")): str,
+            vol.Optional(CONF_GROUP_IDS, default=[str(x) for x in group_ids]): SelectSelector(
+                SelectSelectorConfig(
+                    options=_options(groups, group_ids), multiple=True, mode=SelectSelectorMode.DROPDOWN
+                )
+            ),
+            vol.Optional(CONF_TASK_IDS, default=[str(x) for x in task_ids]): SelectSelector(
+                SelectSelectorConfig(options=_options(tasks, task_ids), multiple=True, mode=SelectSelectorMode.DROPDOWN)
+            ),
+            vol.Required(
+                CONF_TURNOUT_MODE, default=defaults.get(CONF_TURNOUT_MODE, TURNOUT_MODE_RESPONSE)
+            ): TURNOUT_MODE_SELECTOR,
+            vol.Required(
+                CONF_CREW_MIN_SIZE, default=defaults.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)
+            ): CREW_SIZE_SELECTOR,
+        }
     )
-    return {
-        vol.Required(CONF_PERSON_NAME, default=defaults.get(CONF_PERSON_NAME, "")): str,
-        station_key: SelectSelector(SelectSelectorConfig(options=group_options, mode=SelectSelectorMode.DROPDOWN)),
-        vol.Optional(CONF_MONITORED_GROUP_IDS, default=[str(x) for x in group_ids]): SelectSelector(
-            SelectSelectorConfig(options=group_options, multiple=True, mode=SelectSelectorMode.DROPDOWN)
-        ),
-        vol.Optional(CONF_MONITORED_TASK_IDS, default=[str(x) for x in task_ids]): SelectSelector(
-            SelectSelectorConfig(options=task_options, multiple=True, mode=SelectSelectorMode.DROPDOWN)
-        ),
-        vol.Required(
-            CONF_INCIDENT_ENTITY, default=defaults.get(CONF_INCIDENT_ENTITY, DEFAULT_INCIDENT_ENTITY)
-        ): INCIDENT_ENTITY_SELECTOR,
-        vol.Required(
-            CONF_TURNOUT_MODE, default=defaults.get(CONF_TURNOUT_MODE, TURNOUT_MODE_RESPONSE)
-        ): TURNOUT_MODE_SELECTOR,
-        vol.Required(
-            CONF_CREW_MIN_SIZE, default=defaults.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)
-        ): CREW_SIZE_SELECTOR,
-    }
 
 
-def _scope_values(user_input: dict[str, Any]) -> dict[str, Any]:
-    station = int(user_input[CONF_STATION_GROUP_ID])
-    monitored_groups = sorted({int(x) for x in user_input.get(CONF_MONITORED_GROUP_IDS, [])} | {station})
+def _profile_values(user_input: Mapping[str, Any]) -> dict[str, Any]:
+    # Keep the chosen order: the first group names the station in messages.
+    groups: list[int] = []
+    for value in user_input.get(CONF_GROUP_IDS, []):
+        if int(value) not in groups:
+            groups.append(int(value))
     return {
-        CONF_PERSON_NAME: str(user_input.get(CONF_PERSON_NAME, "")).strip(),
-        CONF_STATION_GROUP_ID: station,
-        CONF_MONITORED_GROUP_IDS: monitored_groups,
-        CONF_MONITORED_TASK_IDS: sorted({int(x) for x in user_input.get(CONF_MONITORED_TASK_IDS, [])}),
-        CONF_INCIDENT_ENTITY: user_input.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY,
-        CONF_CREW_MIN_SIZE: int(user_input.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)),
+        CONF_GROUP_IDS: groups,
+        CONF_TASK_IDS: sorted({int(x) for x in user_input.get(CONF_TASK_IDS, [])}),
         CONF_TURNOUT_MODE: user_input.get(CONF_TURNOUT_MODE) or TURNOUT_MODE_RESPONSE,
+        CONF_CREW_MIN_SIZE: int(user_input.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)),
     }
+
+
+def _profile_errors(name: str, values: Mapping[str, Any], taken: set[str]) -> dict[str, str]:
+    if not name:
+        return {CONF_NAME: "name_required"}
+    if name.casefold() in taken:
+        return {CONF_NAME: "name_exists"}
+    if not values[CONF_GROUP_IDS] and not values[CONF_TASK_IDS]:
+        return {"base": "no_scope"}
+    return {}
 
 
 def _error_key(err: Exception) -> str:
@@ -152,10 +159,19 @@ def _error_key(err: Exception) -> str:
     return "unknown"
 
 
-class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
-    """Handle setup of Brandweerrooster."""
+def _default_incident_entity(hass: HomeAssistant) -> str:
+    if hass.states.get(DEFAULT_INCIDENT_ENTITY) is not None:
+        return DEFAULT_INCIDENT_ENTITY
+    for state in hass.states.async_all("sensor"):
+        if "incident" in state.entity_id and "id" in state.attributes:
+            return state.entity_id
+    return DEFAULT_INCIDENT_ENTITY
 
-    VERSION = 1
+
+class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
+    """Sign in to an account and create its first function profile."""
+
+    VERSION = 2
 
     def __init__(self) -> None:
         self._username = ""
@@ -168,6 +184,11 @@ class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: ConfigEntry) -> OptionsFlow:
         return BrandweerroosterOptionsFlow()
+
+    @classmethod
+    @callback
+    def async_get_supported_subentry_types(cls, config_entry: ConfigEntry) -> dict[str, type[ConfigSubentryFlow]]:
+        return {SUBENTRY_PROFILE: ProfileSubentryFlow}
 
     async def async_step_user(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         errors: dict[str, str] = {}
@@ -186,7 +207,7 @@ class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
                 if errors["base"] == "unknown":
                     _LOGGER.exception("Onverwachte fout tijdens Brandweerrooster-configuratie")
             else:
-                return await self.async_step_scope()
+                return await self.async_step_profile()
 
         return self.async_show_form(
             step_id="user",
@@ -199,27 +220,42 @@ class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
             errors=errors,
         )
 
-    async def async_step_scope(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+    async def async_step_profile(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
+        """Account settings plus the first function profile."""
+        errors: dict[str, str] = {}
         if user_input:
-            values = _scope_values(user_input)
-            return self.async_create_entry(
-                title=self._title(values[CONF_STATION_GROUP_ID]),
-                data={CONF_USERNAME: self._username, CONF_PASSWORD: self._password, **values},
-                options={
-                    CONF_FACEBOOK_TEMPLATE: facebook_template.DEFAULT_TEMPLATE,
-                    CONF_VEHICLE_NAMES: DEFAULT_VEHICLE_TEXT,
-                    CONF_INSTALL_BLUEPRINTS: True,
-                },
-            )
+            name = str(user_input.get(CONF_NAME, "")).strip()
+            values = _profile_values(user_input)
+            if not (errors := _profile_errors(name, values, set())):
+                return self.async_create_entry(
+                    title=self._title(),
+                    data={CONF_USERNAME: self._username, CONF_PASSWORD: self._password},
+                    options={
+                        CONF_PERSON_NAME: str(user_input.get(CONF_PERSON_NAME, "")).strip(),
+                        CONF_INCIDENT_ENTITY: user_input.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY,
+                        CONF_FACEBOOK_TEMPLATE: facebook_template.DEFAULT_TEMPLATE,
+                        CONF_VEHICLE_NAMES: "",
+                        CONF_BRANDBASE: True,
+                        CONF_INSTALL_BLUEPRINTS: True,
+                    },
+                    subentries=[
+                        {"subentry_type": SUBENTRY_PROFILE, "title": name, "data": values, "unique_id": None}
+                    ],
+                )
 
-        defaults = {
-            CONF_PERSON_NAME: self._default_person_name(),
-            CONF_INCIDENT_ENTITY: self._default_incident_entity(),
-        }
-        return self.async_show_form(
-            step_id="scope",
-            data_schema=vol.Schema(_scope_schema(self._groups, self._tasks, defaults)),
-        )
+        defaults: dict[str, Any] = dict(user_input or {})
+        schema = vol.Schema(
+            {
+                vol.Required(
+                    CONF_PERSON_NAME, default=defaults.get(CONF_PERSON_NAME, self._default_person_name())
+                ): str,
+                vol.Required(
+                    CONF_INCIDENT_ENTITY,
+                    default=defaults.get(CONF_INCIDENT_ENTITY, _default_incident_entity(self.hass)),
+                ): INCIDENT_ENTITY_SELECTOR,
+            }
+        ).extend(_profile_schema(self._groups, self._tasks, defaults).schema)
+        return self.async_show_form(step_id="profile", data_schema=schema, errors=errors)
 
     async def async_step_reauth(self, entry_data: Mapping[str, Any]) -> ConfigFlowResult:
         self._username = str(entry_data.get(CONF_USERNAME, ""))
@@ -234,10 +270,17 @@ class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
             except Exception as err:  # noqa: BLE001 - mapped to a form error
                 errors["base"] = _error_key(err)
             else:
-                return self.async_update_reload_and_abort(
-                    self._get_reauth_entry(),
-                    data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]},
+                entry = self._get_reauth_entry()
+                if entry.state is not ConfigEntryState.LOADED:
+                    # Not running, so no update listener to reload it.
+                    return self.async_update_reload_and_abort(
+                        entry, data_updates={CONF_PASSWORD: user_input[CONF_PASSWORD]}
+                    )
+                # A loaded entry reloads through its update listener.
+                self.hass.config_entries.async_update_entry(
+                    entry, data={**entry.data, CONF_PASSWORD: user_input[CONF_PASSWORD]}
                 )
+                return self.async_abort(reason="reauth_successful")
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=vol.Schema({vol.Required(CONF_PASSWORD): PASSWORD_SELECTOR}),
@@ -249,29 +292,16 @@ class BrandweerroosterConfigFlow(ConfigFlow, domain=DOMAIN):
         name = self._user.get("name") or self._user.get("full_name") or self._user.get("nickname")
         return str(name or "")
 
-    def _default_incident_entity(self) -> str:
-        if self.hass.states.get(DEFAULT_INCIDENT_ENTITY) is not None:
-            return DEFAULT_INCIDENT_ENTITY
-        for state in self.hass.states.async_all("sensor"):
-            if state.entity_id.endswith("_incidents") and "id" in state.attributes:
-                return state.entity_id
-        return DEFAULT_INCIDENT_ENTITY
-
-    def _title(self, station_id: int) -> str:
-        for group in self._groups:
-            try:
-                if int(group.get("id", -1)) == station_id:
-                    return _label(group)
-            except (TypeError, ValueError):
-                continue
-        return f"Brandweerrooster {station_id}"
+    def _title(self) -> str:
+        name = self._default_person_name()
+        return f"Brandweerrooster ({name})" if name else "Brandweerrooster"
 
 
-class BrandweerroosterOptionsFlow(OptionsFlowWithReload):
-    """Change every setting of the integration from the UI (reloads on save)."""
+class BrandweerroosterOptionsFlow(OptionsFlow):
+    """Account-wide settings; the entry reloads through its update listener."""
 
     async def async_step_init(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
-        entry = self.config_entry
+        options = self.config_entry.options
         errors: dict[str, str] = {}
         placeholders = {
             "details": "",
@@ -294,56 +324,52 @@ class BrandweerroosterOptionsFlow(OptionsFlowWithReload):
             if not errors:
                 return self.async_create_entry(
                     data={
-                        **_scope_values(user_input),
+                        CONF_PERSON_NAME: str(user_input.get(CONF_PERSON_NAME, "")).strip(),
+                        CONF_INCIDENT_ENTITY: user_input.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY,
                         CONF_FACEBOOK_TEMPLATE: template,
+                        CONF_BRANDBASE: bool(user_input.get(CONF_BRANDBASE, True)),
                         CONF_VEHICLE_NAMES: vehicles.strip(),
                         CONF_INSTALL_BLUEPRINTS: bool(user_input.get(CONF_INSTALL_BLUEPRINTS, True)),
                     }
                 )
 
-        groups, tasks = await self._async_load_choices()
-        current = {
-            key: get_setting(entry, key)
-            for key in (
-                CONF_PERSON_NAME,
-                CONF_STATION_GROUP_ID,
-                CONF_MONITORED_GROUP_IDS,
-                CONF_MONITORED_TASK_IDS,
-                CONF_INCIDENT_ENTITY,
-                CONF_CREW_MIN_SIZE,
-                CONF_TURNOUT_MODE,
-            )
-            if get_setting(entry, key) is not None
-        }
-        if user_input is not None:
-            current.update({k: v for k, v in _scope_values(user_input).items()})
-        schema = _scope_schema(groups, tasks, current)
-        if user_input is not None:
-            vehicle_default = str(user_input.get(CONF_VEHICLE_NAMES) or "")
-        else:
-            vehicle_default = str(get_setting(entry, CONF_VEHICLE_NAMES, DEFAULT_VEHICLE_TEXT) or "")
-        schema.update(
+        current = {**options, **(user_input or {})}
+        schema = vol.Schema(
             {
+                vol.Required(CONF_PERSON_NAME, default=current.get(CONF_PERSON_NAME, "")): str,
+                vol.Required(
+                    CONF_INCIDENT_ENTITY, default=current.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY
+                ): INCIDENT_ENTITY_SELECTOR,
                 vol.Required(
                     CONF_FACEBOOK_TEMPLATE,
-                    default=(user_input or {}).get(CONF_FACEBOOK_TEMPLATE)
-                    or get_setting(entry, CONF_FACEBOOK_TEMPLATE, facebook_template.DEFAULT_TEMPLATE),
+                    default=current.get(CONF_FACEBOOK_TEMPLATE) or facebook_template.DEFAULT_TEMPLATE,
                 ): MULTILINE_SELECTOR,
-                vol.Optional(CONF_VEHICLE_NAMES, default=vehicle_default): MULTILINE_SELECTOR,
+                vol.Required(CONF_BRANDBASE, default=bool(current.get(CONF_BRANDBASE, True))): BooleanSelector(),
+                vol.Optional(
+                    CONF_VEHICLE_NAMES, default=str(current.get(CONF_VEHICLE_NAMES) or "")
+                ): MULTILINE_SELECTOR,
                 vol.Required(
-                    CONF_INSTALL_BLUEPRINTS, default=bool(get_setting(entry, CONF_INSTALL_BLUEPRINTS, True))
+                    CONF_INSTALL_BLUEPRINTS, default=bool(current.get(CONF_INSTALL_BLUEPRINTS, True))
                 ): BooleanSelector(),
             }
         )
         return self.async_show_form(
-            step_id="init",
-            data_schema=vol.Schema(schema),
-            errors=errors,
-            description_placeholders=placeholders,
+            step_id="init", data_schema=schema, errors=errors, description_placeholders=placeholders
         )
 
-    async def _async_load_choices(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-        entry = self.config_entry
+
+class ProfileSubentryFlow(ConfigSubentryFlow):
+    """Add or change a function profile (OvD West, TS Echt, ...)."""
+
+    def _taken(self, own_subentry_id: str | None = None) -> set[str]:
+        return {
+            sub.title.strip().casefold()
+            for sub_id, sub in self._get_entry().subentries.items()
+            if sub_id != own_subentry_id
+        }
+
+    async def _async_choices(self) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        entry = self._get_entry()
         if entry.state is ConfigEntryState.LOADED:
             api = entry.runtime_data.api
         else:
@@ -355,3 +381,33 @@ class BrandweerroosterOptionsFlow(OptionsFlowWithReload):
         except BrandweerRoosterApiError as err:
             _LOGGER.warning("Groepen en taken konden niet worden geladen: %s", err)
             return [], []
+
+    async def async_step_user(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            name = str(user_input.get(CONF_NAME, "")).strip()
+            values = _profile_values(user_input)
+            if not (errors := _profile_errors(name, values, self._taken())):
+                return self.async_create_entry(title=name, data=values)
+        groups, tasks = await self._async_choices()
+        return self.async_show_form(
+            step_id="user", data_schema=_profile_schema(groups, tasks, user_input or {}), errors=errors
+        )
+
+    async def async_step_reconfigure(self, user_input: dict[str, Any] | None = None) -> SubentryFlowResult:
+        subentry = self._get_reconfigure_subentry()
+        errors: dict[str, str] = {}
+        if user_input is not None:
+            name = str(user_input.get(CONF_NAME, "")).strip()
+            values = _profile_values(user_input)
+            if not (errors := _profile_errors(name, values, self._taken(subentry.subentry_id))):
+                # Keep migration keys (legacy ids) next to the new settings;
+                # the entry reloads through its update listener.
+                return self.async_update_and_abort(
+                    self._get_entry(), subentry, title=name, data={**subentry.data, **values}
+                )
+        defaults = user_input or {CONF_NAME: subentry.title, **subentry.data}
+        groups, tasks = await self._async_choices()
+        return self.async_show_form(
+            step_id="reconfigure", data_schema=_profile_schema(groups, tasks, defaults), errors=errors
+        )

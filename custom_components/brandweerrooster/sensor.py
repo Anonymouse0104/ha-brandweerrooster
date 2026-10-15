@@ -13,7 +13,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BrandweerRoosterConfigEntry
 from .coordinator import BrandweerRoosterCoordinator
-from .entity import BrandweerRoosterEntity
+from .entity import AccountEntity, ProfileEntity
 from .incident import (
     alarm_datetime,
     category,
@@ -22,7 +22,6 @@ from .incident import (
     format_priority,
     incident_body,
     incident_coordinates,
-    incident_vehicles,
     personnel,
     personnel_by_function,
     response_status,
@@ -30,6 +29,7 @@ from .incident import (
     responses,
     split_p2000,
 )
+from .profile import Profile
 
 # Personnel names, raw responses and similar lists are useful on dashboards
 # but should not end up in the recorder database.
@@ -44,37 +44,46 @@ async def async_setup_entry(
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     coordinator = entry.runtime_data.coordinator
-    async_add_entities(
-        [
-            LatestIncidentSensor(coordinator),
-            LastAlarmSensor(coordinator),
-            IncidentDistanceSensor(coordinator),
-            CrewSensor(coordinator),
-            ResponseSensor(coordinator),
-            CurrentUserSensor(coordinator),
-            MyResponseSensor(coordinator),
-            UitrukMessageSensor(coordinator),
-            StatisticSensor(coordinator, "uitrukken_maand", "month"),
-            StatisticSensor(coordinator, "uitrukken_vorige_maand", "previous_month"),
-            StatisticSensor(coordinator, "uitrukken_jaar", "year"),
-            StatisticSensor(coordinator, "uitrukken_totaal", "total"),
-            StatisticSensor(coordinator, "uitrukken_niet_ingedeeld", "not_assigned"),
-            ResponseRateSensor(coordinator),
-            LastTurnoutSensor(coordinator),
-        ]
-    )
+    async_add_entities([CurrentUserSensor(coordinator), CombinedTotalSensor(coordinator)])
+    for subentry_id, profile in coordinator.profiles.items():
+        async_add_entities(
+            [
+                LatestIncidentSensor(coordinator, profile),
+                LastAlarmSensor(coordinator, profile),
+                IncidentDistanceSensor(coordinator, profile),
+                CrewSensor(coordinator, profile),
+                ResponseSensor(coordinator, profile),
+                MyResponseSensor(coordinator, profile),
+                UitrukMessageSensor(coordinator, profile),
+                StatisticSensor(coordinator, profile, "uitrukken_maand", "month"),
+                StatisticSensor(coordinator, profile, "uitrukken_vorige_maand", "previous_month"),
+                StatisticSensor(coordinator, profile, "uitrukken_jaar", "year"),
+                StatisticSensor(coordinator, profile, "uitrukken_totaal", "total"),
+                StatisticSensor(coordinator, profile, "uitrukken_niet_ingedeeld", "not_assigned"),
+                ResponseRateSensor(coordinator, profile),
+                LastTurnoutSensor(coordinator, profile),
+            ],
+            config_subentry_id=subentry_id,
+        )
 
 
-class BrandweerSensor(BrandweerRoosterEntity, SensorEntity):
-    """Base sensor."""
+class ProfileSensor(ProfileEntity, SensorEntity):
+    """Base sensor of a function profile."""
 
 
-class LatestIncidentSensor(BrandweerSensor):
+def _formatted_address(incident: dict[str, Any]) -> str | None:
+    address = incident.get("address")
+    if isinstance(address, dict) and address.get("formatted_address"):
+        return str(address["formatted_address"])
+    return incident.get("formatted_address")
+
+
+class LatestIncidentSensor(ProfileSensor):
     _attr_icon = "mdi:fire-truck"
     _unrecorded_attributes = _PERSONNEL_ATTRIBUTES
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "latest_incident")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "latest_incident")
 
     @property
     def native_value(self) -> str:
@@ -114,7 +123,8 @@ class LatestIncidentSensor(BrandweerSensor):
                 for task_id in tasks
                 if str(task_id).isdigit()
             ],
-            "voertuigen": incident_vehicles(incident, coordinator.vehicle_names),
+            "voertuigen": self.vehicles(),
+            "onbekende_voertuignummers": coordinator.unknown_vehicle_codes(incident),
             "latitude": latitude,
             "longitude": longitude,
             "afstand_km": self.incident_distance_km(),
@@ -125,46 +135,39 @@ class LatestIncidentSensor(BrandweerSensor):
         }
 
 
-def _formatted_address(incident: dict[str, Any]) -> str | None:
-    address = incident.get("address")
-    if isinstance(address, dict) and address.get("formatted_address"):
-        return str(address["formatted_address"])
-    return incident.get("formatted_address")
-
-
-class LastAlarmSensor(BrandweerSensor):
+class LastAlarmSensor(ProfileSensor):
     _attr_icon = "mdi:alarm-light"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "last_alarm")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "last_alarm")
 
     @property
     def native_value(self) -> datetime | None:
         return alarm_datetime(self.incident)
 
 
-class IncidentDistanceSensor(BrandweerSensor):
+class IncidentDistanceSensor(ProfileSensor):
     _attr_icon = "mdi:map-marker-distance"
     _attr_device_class = SensorDeviceClass.DISTANCE
     _attr_native_unit_of_measurement = UnitOfLength.KILOMETERS
     _attr_suggested_display_precision = 1
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "incident_distance")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "incident_distance")
 
     @property
     def native_value(self) -> float | None:
         return self.incident_distance_km()
 
 
-class CrewSensor(BrandweerSensor):
+class CrewSensor(ProfileSensor):
     _attr_icon = "mdi:account-group"
     _attr_native_unit_of_measurement = "personen"
     _unrecorded_attributes = _PERSONNEL_ATTRIBUTES
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "crew")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "crew")
 
     @property
     def native_value(self) -> int:
@@ -173,24 +176,24 @@ class CrewSensor(BrandweerSensor):
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         crew = personnel(self.incident, self.coordinator.skill_map)
-        status = crew_status(crew, self.coordinator.crew_min_size)
+        status = crew_status(crew, self.profile.crew_min_size)
         return {
             "personeel": crew,
             "per_functie": personnel_by_function(crew),
             "aantal_per_functie": status["per_functie"],
             "bezetting_compleet": status["compleet"],
             "personeel_bron": "incident_skill_assignments",
-            "laatste_uitruk_voertuigen": incident_vehicles(self.incident, self.coordinator.vehicle_names),
+            "laatste_uitruk_voertuigen": self.vehicles(),
         }
 
 
-class ResponseSensor(BrandweerSensor):
+class ResponseSensor(ProfileSensor):
     _attr_icon = "mdi:account-check"
     _attr_native_unit_of_measurement = "reacties"
     _unrecorded_attributes = _PERSONNEL_ATTRIBUTES
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "response")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "response")
 
     @property
     def native_value(self) -> int:
@@ -202,31 +205,11 @@ class ResponseSensor(BrandweerSensor):
         return {**summary, "samenvatting": summary, "reacties": responses(self.incident)}
 
 
-class CurrentUserSensor(BrandweerSensor):
-    _attr_icon = "mdi:account"
-    _attr_entity_category = EntityCategory.DIAGNOSTIC
-
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "current_user")
-
-    @property
-    def native_value(self) -> str:
-        user = self.coordinator.current_user
-        return str(user.get("name") or user.get("nickname") or user.get("id") or "Onbekend")
-
-    @property
-    def extra_state_attributes(self) -> dict[str, Any]:
-        user = self.coordinator.current_user
-        # Only non-sensitive identification; e-mail, phone numbers and
-        # addresses are deliberately not exposed.
-        return {key: user.get(key) for key in ("id", "name", "nickname") if user.get(key) is not None}
-
-
-class MyResponseSensor(BrandweerSensor):
+class MyResponseSensor(ProfileSensor):
     _attr_icon = "mdi:account-arrow-right"
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "my_response")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "my_response")
 
     def _response(self) -> dict[str, Any]:
         user_id = self.coordinator.current_user.get("id")
@@ -246,11 +229,11 @@ class MyResponseSensor(BrandweerSensor):
         return dict(self._response())
 
 
-class UitrukMessageSensor(BrandweerSensor):
+class UitrukMessageSensor(ProfileSensor):
     _attr_icon = "mdi:facebook"
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "uitrukbericht")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "uitrukbericht")
 
     @property
     def native_value(self) -> str:
@@ -258,10 +241,10 @@ class UitrukMessageSensor(BrandweerSensor):
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        return {"bericht": self.coordinator.render_message(self.incident)}
+        return {"bericht": self.coordinator.render_message(self.profile, self.incident)}
 
 
-class StatisticSensor(BrandweerSensor):
+class StatisticSensor(ProfileSensor):
     _attr_native_unit_of_measurement = "uitrukken"
     _attr_state_class = SensorStateClass.MEASUREMENT
 
@@ -273,8 +256,8 @@ class StatisticSensor(BrandweerSensor):
         "not_assigned": "mdi:account-alert",
     }
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator, key: str, statistic: str) -> None:
-        super().__init__(coordinator, key)
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile, key: str, statistic: str) -> None:
+        super().__init__(coordinator, profile, key)
         self._statistic = statistic
         self._attr_icon = self._ICONS.get(statistic)
 
@@ -296,7 +279,8 @@ class StatisticSensor(BrandweerSensor):
         if self._statistic == "total":
             return {
                 "per_functie": stats.get("functions_total", {}),
-                "historie_compleet": self.coordinator.statistics.initialized,
+                "telwijze": self.profile.turnout_mode,
+                "historie_compleet": self.profile.statistics.initialized,
                 "synchronisatie_bezig": self.coordinator.history_sync_running,
                 # A copy, so Home Assistant sees the change while the report
                 # is updated in place during the sync.
@@ -305,14 +289,14 @@ class StatisticSensor(BrandweerSensor):
         return None
 
 
-class ResponseRateSensor(BrandweerSensor):
+class ResponseRateSensor(ProfileSensor):
     _attr_icon = "mdi:percent-circle"
     _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
     _attr_suggested_display_precision = 0
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "response_rate_year")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "response_rate_year")
 
     @property
     def native_value(self) -> float | None:
@@ -326,13 +310,58 @@ class ResponseRateSensor(BrandweerSensor):
         }
 
 
-class LastTurnoutSensor(BrandweerSensor):
+class LastTurnoutSensor(ProfileSensor):
     _attr_icon = "mdi:fire-truck"
     _attr_device_class = SensorDeviceClass.TIMESTAMP
 
-    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
-        super().__init__(coordinator, "last_turnout")
+    def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
+        super().__init__(coordinator, profile, "last_turnout")
 
     @property
     def native_value(self) -> datetime | None:
         return self.statistics.get("last_turnout")
+
+
+class CurrentUserSensor(AccountEntity, SensorEntity):
+    _attr_icon = "mdi:account"
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+
+    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
+        super().__init__(coordinator, "current_user")
+
+    @property
+    def native_value(self) -> str:
+        user = self.coordinator.current_user
+        return str(user.get("name") or user.get("nickname") or user.get("id") or "Onbekend")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        user = self.coordinator.current_user
+        # Only non-sensitive identification; e-mail, phone numbers and
+        # addresses are deliberately not exposed.
+        return {key: user.get(key) for key in ("id", "name", "nickname") if user.get(key) is not None}
+
+
+class CombinedTotalSensor(AccountEntity, SensorEntity):
+    """Turnouts over all functions; an incident in two profiles counts once."""
+
+    _attr_icon = "mdi:counter"
+    _attr_native_unit_of_measurement = "uitrukken"
+    _attr_state_class = SensorStateClass.MEASUREMENT
+
+    def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
+        super().__init__(coordinator, "uitrukken_totaal_alle")
+
+    @property
+    def native_value(self) -> int:
+        return int(self.coordinator.combined.get("total", 0))
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {
+            "dit_jaar": self.coordinator.combined.get("year", 0),
+            "deze_maand": self.coordinator.combined.get("month", 0),
+            "per_functieprofiel": {
+                profile.name: profile.counts.get("total", 0) for profile in self.coordinator.profiles.values()
+            },
+        }

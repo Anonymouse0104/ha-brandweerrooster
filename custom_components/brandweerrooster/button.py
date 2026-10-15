@@ -1,4 +1,4 @@
-"""Buttons for Brandweerrooster."""
+"""Buttons for Brandweerrooster (account-wide)."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 
 from . import BrandweerRoosterConfigEntry
 from .coordinator import BrandweerRoosterCoordinator
-from .entity import BrandweerRoosterEntity
+from .entity import AccountEntity
 
 
 async def async_setup_entry(
@@ -21,7 +21,7 @@ async def async_setup_entry(
     async_add_entities([RefreshIncidentButton(coordinator), ResyncStatisticsButton(coordinator)])
 
 
-class RefreshIncidentButton(BrandweerRoosterEntity, ButtonEntity):
+class RefreshIncidentButton(AccountEntity, ButtonEntity):
     _attr_icon = "mdi:refresh"
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator) -> None:
@@ -31,7 +31,7 @@ class RefreshIncidentButton(BrandweerRoosterEntity, ButtonEntity):
         await self.coordinator.async_refresh_latest_incident()
 
 
-class ResyncStatisticsButton(BrandweerRoosterEntity, ButtonEntity):
+class ResyncStatisticsButton(AccountEntity, ButtonEntity):
     _attr_icon = "mdi:database-sync"
     _attr_entity_category = EntityCategory.CONFIG
 
