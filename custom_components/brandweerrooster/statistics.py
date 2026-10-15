@@ -16,6 +16,7 @@ from .incident import (
     format_priority,
     incident_body,
     response_is_positive,
+    response_status,
     split_p2000,
 )
 
@@ -115,7 +116,7 @@ class PersonalIncidentStatistics:
             "incident_id": incident_id,
             "timestamp": incident_timestamp(incident),
             "type": event_type,
-            "response_status": response.get("reported_status") or response.get("status"),
+            "response_status": response_status(response),
             "response_id": response.get("id"),
             "functies": assigned_functions or [],
             "classificatie": classification(melding, str(incident.get("type") or "")),

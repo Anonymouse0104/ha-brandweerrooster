@@ -42,8 +42,15 @@ NEGATIVE_RESPONSE_STATUSES = frozenset(
         "absent",
         "cancelled",
         "canceled",
+        "expired",
     }
 )
+
+# Brandweerrooster API v2: ``status`` is the alarm response (acknowledged,
+# rejected, expired, pending, not_sent) and ``reported_status`` the attendance
+# filled in afterwards (dispatched, shown_up, no_show, unknown). Until the
+# attendance is filled in, ``reported_status`` is ``unknown``.
+_UNSET_REPORTED_STATUSES = frozenset({"", "unknown"})
 
 _ROLE_ORDER = (
     ("bevelvoerder", 0),
@@ -58,7 +65,11 @@ def normalize_status(value: Any) -> str:
 
 
 def response_status(response: dict[str, Any]) -> str:
-    return normalize_status(response.get("reported_status") or response.get("status"))
+    """Return the effective status: the reported attendance when filled in, else the alarm response."""
+    reported = normalize_status(response.get("reported_status"))
+    if reported not in _UNSET_REPORTED_STATUSES:
+        return reported
+    return normalize_status(response.get("status")) or reported
 
 
 def response_is_positive(response: dict[str, Any]) -> bool:

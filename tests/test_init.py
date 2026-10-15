@@ -255,6 +255,24 @@ async def test_services_and_buttons(hass: HomeAssistant, mock_api, config_entry)
     assert "10" in coordinator.statistics.events
     assert "9" not in coordinator.statistics.events
     assert coordinator.statistics.initialized
+    report = coordinator.history_report
+    assert report["status"] == "klaar"
+    assert report["incidenten"] == 2
+    assert report["relevant"] == 1
+    assert report["met_jouw_reactie"] == 1
+    assert report["voorbeelden_niet_relevant"] == [{"incident_id": 9, "groups": [300], "task_ids": [11]}]
+    total = hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal"))
+    assert total.attributes["historie_samenvatting"]["status"] == "klaar"
+
+    # List items without responses or scope fields are fetched in detail.
+    bare = {"id": 11, "body": "P 1 BR woning"}
+    mock_api["incidents"].return_value = [bare]
+    mock_api["incident"].return_value = make_incident(11)
+    with patch("custom_components.brandweerrooster.coordinator.HISTORY_DETAIL_DELAY", 0):
+        await hass.services.async_call(DOMAIN, "resync_statistics", {}, blocking=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    assert "11" in coordinator.statistics.events
+    assert coordinator.history_report["details_opgehaald"] == 1
     assert await hass.config_entries.async_unload(config_entry.entry_id)
 
 

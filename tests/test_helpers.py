@@ -16,6 +16,9 @@ from custom_components.brandweerrooster.incident import (
     incident_coordinates,
     incident_vehicles,
     personnel,
+    response_is_negative,
+    response_is_positive,
+    response_status,
     response_summary,
     split_p2000,
     station_name,
@@ -96,6 +99,17 @@ def test_response_summary() -> None:
     assert response_summary(make_incident()) == {"opgekomen": 2, "afgewezen": 1, "overig": 0}
 
 
+def test_response_status_uses_alarm_response_until_attendance_is_known() -> None:
+    assert response_status({"status": "acknowledged", "reported_status": "unknown"}) == "acknowledged"
+    assert response_status({"status": "acknowledged", "reported_status": "no_show"}) == "no_show"
+    assert response_status({"status": "pending", "reported_status": None}) == "pending"
+    assert response_is_positive({"status": "acknowledged", "reported_status": "unknown"})
+    assert not response_is_positive({"status": "acknowledged", "reported_status": "no_show"})
+    assert response_is_negative({"status": "expired", "reported_status": "unknown"})
+    assert not response_is_positive({"status": "pending", "reported_status": "unknown"})
+    assert not response_is_negative({"status": "pending", "reported_status": "unknown"})
+
+
 def test_station_name_skips_crew_groups() -> None:
     groups = {100: "Brandweer Echt TS", 200: "Ploeg 2"}
     assert station_name({"group_ids": [200, 100]}, groups, 100, "Ploeg 2 (200)") == "Echt"
@@ -119,7 +133,7 @@ async def test_statistics_counts_and_timezone(hass) -> None:
     # 31-03 22:30 UTC is 1 April 00:30 in Amsterdam.
     assert stats.record_incident(make_incident(1), USER, "Jan Jansen", SKILLS)
     declined = make_incident(2)
-    declined["incident_responses"][0]["reported_status"] = "rejected"
+    declined["incident_responses"][0]["status"] = "rejected"
     declined["created_at"] = declined["start_time"] = "2026-02-10T10:00:00Z"
     assert stats.record_incident(declined, USER, "Jan Jansen", SKILLS)
 

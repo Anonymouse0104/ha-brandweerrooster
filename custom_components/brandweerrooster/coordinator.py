@@ -47,7 +47,7 @@ from .const import (
 )
 from .helpers import get_setting
 from .incident import incident_groups, incident_tasks, int_set, message_values
-from .statistics import PersonalIncidentStatistics
+from .statistics import PersonalIncidentStatistics, find_user_response
 from .vehicles import DEFAULT_VEHICLE_TEXT, parse_vehicle_names
 
 if TYPE_CHECKING:
@@ -104,6 +104,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.task_map: dict[int, str] = {}
         self.statistics = PersonalIncidentStatistics(hass, entry.entry_id)
         self.history_sync_running = False
+        self.history_report: dict[str, Any] | None = None
         self._current_user: dict[str, Any] = {}
         self._last_incident_id: int | None = None
         # Incidents for other stations; FireServiceRota updates the same
@@ -400,6 +401,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         first = True
         cancelled = False
         self.history_sync_running = True
+        report = self.history_report = _new_report(page)
         self.async_update_listeners()
         try:
             while True:
@@ -407,7 +409,8 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     await asyncio.sleep(HISTORY_PAGE_DELAY)
                 first = False
                 incidents = await self.api.async_get_incidents(per_page=HISTORY_PAGE_SIZE, page=page)
-                await self._async_record_page(incidents)
+                report["paginas"] += 1
+                await self._async_record_page(incidents, report)
                 page += 1
                 done = len(incidents) < HISTORY_PAGE_SIZE or page > HISTORY_MAX_PAGES
                 await self.statistics.async_save(
@@ -415,24 +418,30 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     history_page=1 if done else page,
                 )
                 if done:
-                    _LOGGER.info("Historische Brandweerrooster-statistieken zijn gesynchroniseerd")
+                    report["status"] = "klaar"
+                    _LOGGER.info("Historische Brandweerrooster-statistieken zijn gesynchroniseerd: %s", report)
                     return
         except BrandweerRoosterRateLimitError as err:
             delay = err.retry_after or RATE_LIMIT_DEFAULT_RETRY
+            report["status"] = f"gepauzeerd door rate-limit, nieuwe poging over {delay} s"
             _LOGGER.warning("Historische synchronisatie gepauzeerd door rate-limit; nieuwe poging over %s s", delay)
             self._history_retry_unsub = async_call_later(self.hass, delay, self._async_resume_history)
         except BrandweerRoosterAuthenticationError:
+            report["status"] = "gestopt: opnieuw aanmelden nodig"
             self._start_reauth()
         except BrandweerRoosterApiError as err:
+            report["status"] = f"onderbroken ({err}), nieuwe poging over 1 uur"
             _LOGGER.warning("Historische synchronisatie onderbroken (%s); nieuwe poging over 1 uur", err)
             self._history_retry_unsub = async_call_later(self.hass, 3600, self._async_resume_history)
         except asyncio.CancelledError:
             cancelled = True
             raise
-        except Exception:
+        except Exception as err:
+            report["status"] = f"fout: {type(err).__name__}"
             _LOGGER.exception("Onverwachte fout tijdens historische synchronisatie")
         finally:
             self.history_sync_running = False
+            report["vastgelegd_totaal"] = len(self.statistics.events)
             if not cancelled:
                 self._refresh_statistics_data()
 
@@ -441,28 +450,40 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._history_retry_unsub = None
         self.async_start_history_sync()
 
-    async def _async_record_page(self, incidents: list[dict[str, Any]]) -> None:
+    async def _async_record_page(
+        self, incidents: list[dict[str, Any]], report: dict[str, Any] | None = None
+    ) -> None:
         """Record a page of incidents, fetching details when the list lacks them."""
+        report = report if report is not None else _new_report(1)
         await self._async_ensure_reference_data_safe()
         for incident in incidents:
-            if not self._is_relevant(incident):
-                continue
+            report["incidenten"] += 1
             detail = incident
-            if (
-                incident.get("id") is not None
-                and not incident.get("incident_responses")
-                and not incident.get("incident_skill_assignments")
-            ):
+            needs_detail = incident.get("id") is not None and (
+                not incident.get("incident_responses") or not _has_scope_fields(incident)
+            )
+            if not self._is_relevant(incident) and _has_scope_fields(incident):
+                _add_sample(report, incident)
+                continue
+            if needs_detail:
                 await asyncio.sleep(HISTORY_DETAIL_DELAY)
                 try:
                     detail = await self.api.async_get_incident(int(incident["id"]))
-                except BrandweerRoosterRateLimitError:
-                    raise
-                except BrandweerRoosterAuthenticationError:
+                except (BrandweerRoosterRateLimitError, BrandweerRoosterAuthenticationError):
                     raise
                 except BrandweerRoosterApiError as err:
                     _LOGGER.debug("Incident %s kon niet worden verrijkt: %s", incident.get("id"), err)
+                    report["detail_mislukt"] += 1
                     continue
+                report["details_opgehaald"] += 1
+                if not self._is_relevant(detail):
+                    _add_sample(report, detail)
+                    continue
+            report["relevant"] += 1
+            if find_user_response(detail, self._current_user, self.person_name) is None:
+                report["zonder_jouw_reactie"] += 1
+                continue
+            report["met_jouw_reactie"] += 1
             self.statistics.record_incident(detail, self._current_user, self.person_name, self.skill_map)
 
     async def _async_daily_sync(self, _now: datetime) -> None:
@@ -589,6 +610,41 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             return int(raw) if raw is not None else None
         except (TypeError, ValueError):
             return None
+
+
+def _new_report(page: int) -> dict[str, Any]:
+    """Counters that explain the outcome of a history synchronisation."""
+    return {
+        "status": "bezig",
+        "gestart": dt_util.now().isoformat(timespec="seconds"),
+        "startpagina": page,
+        "paginas": 0,
+        "incidenten": 0,
+        "details_opgehaald": 0,
+        "detail_mislukt": 0,
+        "relevant": 0,
+        "met_jouw_reactie": 0,
+        "zonder_jouw_reactie": 0,
+        "vastgelegd_totaal": 0,
+        "voorbeelden_niet_relevant": [],
+    }
+
+
+def _add_sample(report: dict[str, Any], incident: dict[str, Any]) -> None:
+    """Keep a few group/task ids of skipped incidents (no personal data)."""
+    samples: list[dict[str, Any]] = report["voorbeelden_niet_relevant"]
+    if len(samples) < 5:
+        samples.append(
+            {
+                "incident_id": incident.get("id"),
+                "groups": sorted(incident_groups(incident)),
+                "task_ids": sorted(incident_tasks(incident)),
+            }
+        )
+
+
+def _has_scope_fields(incident: dict[str, Any]) -> bool:
+    return any(key in incident for key in ("groups", "group_ids", "task_ids"))
 
 
 def _label_map(items: list[dict[str, Any]]) -> dict[int, str]:

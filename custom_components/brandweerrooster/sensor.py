@@ -24,6 +24,7 @@ from .incident import (
     incident_vehicles,
     personnel,
     personnel_by_function,
+    response_status,
     response_summary,
     responses,
     split_p2000,
@@ -99,7 +100,7 @@ class LatestIncidentSensor(BrandweerSensor):
             "straat": parsed["straat"],
             "plaats": parsed["plaats"],
             "locatie": parsed["locatie"],
-            "adres": incident.get("formatted_address"),
+            "adres": _formatted_address(incident),
             "prioriteit": format_priority(incident.get("prio")) or incident.get("prio"),
             "incident_status": incident.get("state"),
             "type": incident.get("type"),
@@ -121,6 +122,13 @@ class LatestIncidentSensor(BrandweerSensor):
             "personeel": crew,
             "personeel_per_functie": personnel_by_function(crew),
         }
+
+
+def _formatted_address(incident: dict[str, Any]) -> str | None:
+    address = incident.get("address")
+    if isinstance(address, dict) and address.get("formatted_address"):
+        return str(address["formatted_address"])
+    return incident.get("formatted_address")
 
 
 class LastAlarmSensor(BrandweerSensor):
@@ -230,8 +238,7 @@ class MyResponseSensor(BrandweerSensor):
 
     @property
     def native_value(self) -> str:
-        response = self._response()
-        return str(response.get("reported_status") or response.get("status") or "Geen actieve opkomst")
+        return response_status(self._response()) or "Geen actieve opkomst"
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -290,6 +297,7 @@ class StatisticSensor(BrandweerSensor):
                 "per_functie": stats.get("functions_total", {}),
                 "historie_compleet": self.coordinator.statistics.initialized,
                 "synchronisatie_bezig": self.coordinator.history_sync_running,
+                "historie_samenvatting": self.coordinator.history_report,
             }
         return None
 

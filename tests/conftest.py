@@ -28,18 +28,19 @@ def make_incident(incident_id: int = 3010161, *, assigned: bool = True, group: i
     incident: dict[str, Any] = {
         "id": incident_id,
         "body": "P 1 BDH-01 BR woning Kerkstraat Echt 235331 235371",
-        "prio": 1,
+        # Field names and values as documented in the Brandweerrooster API v2.
+        "prio": "prio1",
+        "state": "alerted",
         "type": "incident_alert",
         "created_at": "2026-03-31T22:30:00Z",
         "start_time": "2026-03-31T22:30:00Z",
-        "group_ids": [group],
+        "groups": [group],
         "task_ids": [11],
-        "latitude": 51.1,
-        "longitude": 5.87,
+        "address": {"latitude": 51.1, "longitude": 5.87, "formatted_address": "Kerkstraat 1, Echt"},
         "incident_responses": [
-            {"id": 1, "user_id": 7, "user_name": "Jan Jansen", "reported_status": "acknowledged"},
-            {"id": 2, "user_id": 8, "user_name": "Piet", "reported_status": "acknowledged"},
-            {"id": 3, "user_id": 9, "user_name": "Klaas", "reported_status": "rejected"},
+            {"id": 1, "user_id": 7, "user_name": "Jan Jansen", "status": "acknowledged", "reported_status": "unknown"},
+            {"id": 2, "user_id": 8, "user_name": "Piet", "status": "acknowledged", "reported_status": "dispatched"},
+            {"id": 3, "user_id": 9, "user_name": "Klaas", "status": "rejected", "reported_status": "unknown"},
         ],
         "incident_skill_assignments": [],
     }

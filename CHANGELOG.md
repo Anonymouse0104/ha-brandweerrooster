@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.1
+
+### Fixes
+- A response was not recognised as a turnout while Brandweerrooster still had `reported_status: unknown`, which is the case until attendance is filled in afterwards. The alarm response (`status`: `acknowledged`, `rejected`, `expired`) is now used until the attendance (`dispatched`, `shown_up`, `no_show`) is known. *Mijn opkomst* shows the same effective status.
+- History sync now fetches incident details when the incident list does not include responses or group/task ids, instead of skipping those incidents.
+
+### New
+- *Uitrukken totaal* has a `historie_samenvatting` attribute that explains the last history sync: incidents seen, relevant, with your response, and a few group/task ids of skipped incidents. The same information is in **Download diagnostics**.
+- *Laatste incident* `adres` also uses the API `address` object.
+
+After updating, press **Statistieken opnieuw synchroniseren** once.
+
 ## 1.4.0
 
 Requires Home Assistant 2025.8 or newer.
