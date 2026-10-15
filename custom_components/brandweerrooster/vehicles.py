@@ -5,12 +5,9 @@ from __future__ import annotations
 import re
 from typing import Any
 
-# The Brandweerrooster incident endpoint does not currently expose the P2000
-# vehicle number -> display-name relation in every incident payload.  The
-# mapping below covers the Limburg-Noord vehicle codes used by the integration
-# and is deliberately kept in a separate module so it can be extended without
-# touching sensor logic.
-VEHICLE_NAMES: dict[str, str] = {
+# Default vehicle list (Limburg-Noord). Users can change, extend or clear this
+# list in the integration options; the options text is the source of truth.
+DEFAULT_VEHICLE_NAMES: dict[str, str] = {
     "235151": "HW Roermond",
     "235191": "DA-OVD Roermond",
     "235231": "TST Montfort",
@@ -46,6 +43,7 @@ VEHICLE_NAMES: dict[str, str] = {
 }
 
 VEHICLE_CODE_RE = re.compile(r"(?<!\d)(?:\d{6}|\d{2}-\d{4})(?!\d)")
+_VEHICLE_LINE_RE = re.compile(r"^\s*(\d{2}-?\d{4})\s*[=:;,\t ]\s*(.+?)\s*$")
 
 
 def extract_vehicle_codes(value: Any, *, remove: bool = False) -> list[str] | str:
@@ -64,14 +62,51 @@ def extract_vehicle_codes(value: Any, *, remove: bool = False) -> list[str] | st
     return codes
 
 
-def resolve_vehicle_names(codes: list[str]) -> list[str]:
+def resolve_vehicle_names(codes: list[str], mapping: dict[str, str] | None = None) -> list[str]:
     """Resolve known P2000 vehicle codes to short, Facebook-friendly names."""
+    names = DEFAULT_VEHICLE_NAMES if mapping is None else mapping
     result: list[str] = []
     seen: set[str] = set()
     for code in codes:
         normalized = str(code).replace("-", "")
-        name = VEHICLE_NAMES.get(normalized)
+        name = names.get(normalized)
         if name and name not in seen:
             seen.add(name)
             result.append(name)
     return result
+
+
+def parse_vehicle_names(text: str | None) -> dict[str, str]:
+    """Parse the options text (one ``code = name`` per line) into a mapping.
+
+    Empty lines and lines starting with ``#`` are ignored. Invalid lines are
+    returned by :func:`invalid_vehicle_lines` so the options flow can reject
+    them.
+    """
+    result: dict[str, str] = {}
+    for line in str(text or "").splitlines():
+        if not line.strip() or line.strip().startswith("#"):
+            continue
+        match = _VEHICLE_LINE_RE.match(line)
+        if match:
+            result[match.group(1).replace("-", "")] = match.group(2)
+    return result
+
+
+def invalid_vehicle_lines(text: str | None) -> list[str]:
+    """Return the non-empty lines that are not a valid ``code = name`` pair."""
+    return [
+        line.strip()
+        for line in str(text or "").splitlines()
+        if line.strip()
+        and not line.strip().startswith("#")
+        and not _VEHICLE_LINE_RE.match(line)
+    ]
+
+
+def format_vehicle_names(mapping: dict[str, str]) -> str:
+    """Format a mapping as options text."""
+    return "\n".join(f"{code} = {name}" for code, name in mapping.items())
+
+
+DEFAULT_VEHICLE_TEXT = format_vehicle_names(DEFAULT_VEHICLE_NAMES)

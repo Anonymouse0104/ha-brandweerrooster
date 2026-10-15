@@ -1,253 +1,193 @@
 # Brandweerrooster API for Home Assistant
 
-Unofficial Home Assistant custom integration for the public Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
+Unofficial Home Assistant custom integration for the Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
+
+Everything is configured from the Home Assistant UI — you never have to create or edit YAML files.
 
 ## What it does
 
-- Logs in using the documented Brandweerrooster OAuth password flow.
-- Lets you select the station/main group during setup instead of hard-coding a fire station.
-- Receives live incident triggers from the official FireServiceRota Home Assistant integration.
-- Retrieves the relevant Brandweerrooster incident, response and assigned-personnel data.
-- Generates a copy-ready Dutch Facebook dispatch message.
-- Resolves known P2000 vehicle numbers to readable vehicle names.
-- Keeps personal turnout statistics for the configured Brandweerrooster user.
-- Stores incident/statistics data locally so it remains available after a Home Assistant restart.
+- Logs in with your Brandweerrooster account (OAuth password flow) and asks you to sign in again when your password changes.
+- Receives live incidents from the official **FireServiceRota** integration and fetches the matching Brandweerrooster incident, responses and assigned crew.
+- Shows the latest incident, the assigned crew per function, whether the crew is complete, the responses and your own response.
+- Puts the incident on the Home Assistant map and calculates the distance from your home.
+- Fires an event for every new incident (`p1_incident`, `p2_incident`, `new_incident`) for automations.
+- Generates a copy-ready Facebook dispatch message from a template you edit in the UI.
+- Keeps personal turnout statistics: this month, last month, this year, total, response rate, per function, per category and per time of day.
+- Ships three ready-made automation blueprints: phone notification, night alarm and dispatch message to your phone.
 
-## Personnel selection (v1.3.7)
+## Requirements
 
-The **assigned personnel** entity uses `incident_skill_assignments` as the authoritative source for crew membership and function. `incident_responses` is used only to enrich an already-assigned person with response/status information. People present only in `incident_responses` can therefore never appear as crew.
+- Home Assistant **2025.8** or newer.
+- The official **FireServiceRota** integration, configured with the same account. It provides the live incident trigger (`sensor.incidents`), availability (`binary_sensor.duty`) and the accept/decline switch (`switch.incident_response`). This integration does not replace those.
 
-For incident 3010161, the API assignment records contain exactly seven assigned people; this is the source used by the integration.
+## Installation
 
-## Required companion integration: FireServiceRota
+### HACS (recommended)
 
-This integration intentionally does **not** replace the official Home Assistant FireServiceRota integration for live availability and accepting/declining an alarm. Install and configure FireServiceRota as well.
+1. Open HACS → **Integrations** → three-dot menu → **Custom repositories**.
+2. Add `https://github.com/Anonymouse0104/ha-brandweerrooster` as an **Integration**.
+3. Install **Brandweerrooster API** and restart Home Assistant.
+4. Go to **Settings → Devices & services → Add integration** and search for **Brandweerrooster API**.
 
-For dashboards using the standard entity IDs, keep these FireServiceRota entity IDs unchanged:
+### Manual
 
-- `binary_sensor.duty` — availability/duty status
-- `sensor.incidents` — live incident trigger
-- `switch.incident_response` — accept/decline the current incident
+Copy `custom_components/brandweerrooster` to `/config/custom_components/brandweerrooster`, restart Home Assistant and add the integration from the UI.
 
-If your FireServiceRota setup uses different entity IDs, adapt the dashboard and/or integration constants accordingly.
+## Setup
 
-## Installation with HACS
+1. Sign in with your Brandweerrooster e-mail address and password.
+2. Choose:
+   - **Your name**: used for personal statistics (your Brandweerrooster user ID is used whenever available).
+   - **Station / main group**: the group whose incidents count as "yours".
+   - **Additional groups / tasks** (optional): extra groups or tasks that should also count.
+   - **FireServiceRota incident sensor**: normally `sensor.incidents`; pick another one if yours has a different entity ID.
+   - **Minimum crew size**: used for the *Crew complete* sensor (e.g. 6 for a TS, 4 for a TS-4).
 
-The repository is designed for HACS as an **Integration**.
+### Changing settings later
 
-1. Open HACS → **Integrations**.
-2. Open the three-dot menu and choose **Custom repositories**.
-3. Add `https://github.com/Anonymouse0104/ha-brandweerrooster`.
-4. Select **Integration** as the category.
-5. Install **Brandweerrooster API**.
-6. Restart Home Assistant.
-7. Go to **Settings → Devices & services → Add integration**.
-8. Search for **Brandweerrooster API**.
-9. Sign in and select the relevant station/main group.
+Everything can be changed afterwards under **Settings → Devices & services → Brandweerrooster → Configure**:
 
-For a stable installation, use the latest GitHub release rather than an arbitrary development commit.
+| Setting | What it does |
+|---|---|
+| Station, groups, tasks | Which incidents are relevant |
+| FireServiceRota incident sensor | The entity that triggers incident processing |
+| Minimum crew size | Threshold for *Crew complete* |
+| Dispatch message template | The text of the Facebook message (see below) |
+| Vehicle names | P2000 number → readable name, one per line (`235331 = TS Echt`) |
+| Install automation blueprints | Puts the bundled blueprints in your blueprint list |
 
-## Public repository
+The integration reloads automatically after saving.
 
-- Repository: `https://github.com/Anonymouse0104/ha-brandweerrooster`
-- Issues: `https://github.com/Anonymouse0104/ha-brandweerrooster/issues`
-- Releases: `https://github.com/Anonymouse0104/ha-brandweerrooster/releases`
-
-## Manual installation
-
-Copy `custom_components/brandweerrooster` into:
-
-```text
-/config/custom_components/brandweerrooster
-```
-
-Restart Home Assistant and add the integration from the UI.
-
-## Station selection
-
-During setup, the integration retrieves the available Brandweerrooster groups and lets the user select a station/main group. The selected group is stored as `station_group_id`.
-
-The generated Facebook message uses the selected/incident-related station group to determine the `{kazerne}` placeholder. The Home Assistant config-entry title is **not** used for the public station name, so names such as `Ploeg 2 (4292)` do not appear in the generated message.
-
-This makes the same integration usable for different stations without changing the source code.
+If your password changes, Home Assistant shows a **Re-authenticate** notification; enter the new password there.
 
 ## Entities
 
-The integration creates one Home Assistant device per configured account with entities for:
+One device is created per configured account. Entity names below are the Dutch names; the entity IDs are based on the device name.
 
-- latest incident
-- assigned personnel
-- incident response summary
-- logged-in user
-- current user's response
-- copy-ready Facebook dispatch message
-- personal turnout statistics
-- API availability
+| Entity | Description |
+|---|---|
+| **Laatste incident** (sensor) | `Incident <id>`; attributes: message, classification, category, street, place, location, priority, vehicles, coordinates, distance, crew, source (API or FireServiceRota fallback) |
+| **Laatste alarmering** (timestamp) | When the latest incident was alarmed |
+| **Afstand tot incident** (km) | Distance from your Home Assistant home location |
+| **Locatie laatste incident** (geo_location) | Shows the incident on the map (only when coordinates are known) |
+| **Ingezet personeel** | Number of assigned people; attributes per function and the crew list |
+| **Bezetting compleet** (binary sensor) | On when there is a commander, a driver and at least the minimum crew size; attributes say what is missing |
+| **Opkomst** | Number of responses; attributes `opgekomen`, `afgewezen`, `overig` |
+| **Mijn opkomst** | Your own response status for the latest incident |
+| **Uitrukbericht** | Attribute `bericht` contains the generated Facebook message |
+| **Uitrukken deze maand / vorige maand / dit jaar / totaal** | Turnouts where you responded positively **and** were assigned |
+| **Opgekomen, niet ingedeeld** | You responded positively but were not assigned |
+| **Opkomstpercentage dit jaar** | Share of alarms this year where you turned out |
+| **Laatste uitruk** (timestamp) | Your most recent turnout |
+| **Nieuw incident** (event) | Fires once per new incident |
+| **Incident verversen** (button) | Fetches the latest incident again |
+| **Statistieken opnieuw synchroniseren** (button) | Rebuilds the statistics from the full history |
+| **API beschikbaar** (diagnostic) | Whether the last Brandweerrooster API call succeeded; attributes show the last error |
+| **Gebruiker** (diagnostic) | Logged-in user (name and ID only) |
 
-Live availability and accept/decline controls remain the responsibility of FireServiceRota.
+The *Uitrukken dit jaar* sensor also has attributes `per_functie`, `per_categorie`, `per_classificatie` and `per_dagdeel` (night/morning/afternoon/evening), and *Uitrukken totaal* has `per_functie` for all time.
 
-## Incident event entity
+### Privacy
 
-The integration creates a **New incident** event entity for automation-friendly incident notifications. The event types are:
+Crew names and response lists are shown on the entities but are **not stored in the recorder database**. The user sensor exposes only name and ID. For troubleshooting use **Download diagnostics** on the integration page; passwords, e-mail addresses and names are redacted there.
+
+## Incident event and automations
+
+The **Nieuw incident** event entity fires one of these event types:
 
 - `p1_incident` — a new P1 incident
 - `p2_incident` — a new P2 incident
-- `new_incident` — another or unknown priority
+- `new_incident` — any other or unknown priority
 
-The event data contains the incident ID, message, location, priority, station, vehicles and timestamps. Latitude and longitude are included when the source provides coordinates.
+The event data contains `incident_id`, `melding`, `classificatie`, `categorie`, `locatie`, `straat`, `plaats`, `prioriteit`, `kazerne`, `voertuigen`, `bericht` (the dispatch message), timestamps and — when available — `latitude`, `longitude` and `afstand_km`.
 
-Example automation:
+### Ready-made blueprints
 
-```yaml
-alias: Brandweerrooster - P1 notification
-triggers:
-  - trigger: event.received
-    target:
-      entity_id: event.brandweerrooster_new_incident
-    options:
-      event_type:
-        - p1_incident
-actions:
-  - action: notify.mobile_app_your_phone
-    data:
-      title: "🚒 P1 brandweermelding"
-      message: >-
-        {{ trigger.event.data.melding }} - {{ trigger.event.data.locatie }}
-```
+When *Install automation blueprints* is enabled (default), these appear under **Settings → Automations & scenes → Blueprints**:
 
-The exact entity ID depends on the configured device/entity naming in Home Assistant. See `examples/automation_new_incident.yaml` for a complete example.
+- **Brandweerrooster – melding bij nieuw incident**: push notification to your phone for the priorities you choose.
+- **Brandweerrooster – nachtalarm**: turns on the lights you choose during the night hours you choose, plus optional extra actions.
+- **Brandweerrooster – uitrukbericht naar telefoon**: sends the ready-made Facebook message to your phone a few minutes after the alarm.
 
-Home Assistant event entities are designed for momentary events and expose their event types to the automation UI.
+Click a blueprint → **Create automation**, pick your phone/lights and save. The integration keeps these files up to date; if you edit one yourself, remove its first line (`# managed-by: brandweerrooster`) and your version is left alone.
 
-## Incident location and maps
+### Actions
 
-The **Latest incident** sensor now exposes `latitude` and `longitude` when coordinates are available in the Brandweerrooster incident or the companion FireServiceRota incident state. If no coordinates are provided by the source, the integration leaves them empty and does not geocode or invent a position.
+| Action | Description |
+|---|---|
+| `brandweerrooster.generate_message` | Returns `{incident_id, bericht}` for the latest incident; optional `template` to use a different text once |
+| `brandweerrooster.refresh_incident` | Fetches the latest incident again |
+| `brandweerrooster.resync_statistics` | Rebuilds the statistics from the full history |
 
-This allows users to show the latest incident on a Home Assistant map card. For example:
+## Facebook dispatch message
 
-```yaml
-type: map
-entities:
-  - entity: sensor.brandweerrooster_latest_incident
-    name: Latest incident
-```
-
-Replace the example entity ID with the actual entity ID created by your Brandweerrooster config entry. See `examples/map_latest_incident.yaml`.
-
-## Personal turnout statistics
-
-During setup, enter the user's name for personal statistics. The integration also uses the Brandweerrooster user ID whenever available.
-
-The following sensors are created:
-
-- **Uitrukken deze maand**: the user positively responded to an incident **and** appears in the assigned personnel list; current calendar month.
-- **Uitrukken dit jaar**: the same definition for the current calendar year.
-- **Uitrukken totaal**: the same definition over the known incident history.
-- **Opgekomen, niet ingedeeld**: the user positively responded but does not appear in the assigned personnel list.
-
-The month and year counters are based on incident dates and therefore roll over automatically at the start of a new month/year. Statistics are stored locally in Home Assistant and survive a restart.
-
-## Incident updates and API usage
-
-The integration does not continuously poll the Brandweerrooster incident endpoint. It listens to the FireServiceRota `sensor.incidents` entity and only requests the corresponding Brandweerrooster incident when a new incident ID is detected.
-
-A one-time, throttled background history synchronization is used to build personal turnout statistics. Progress is persisted so the synchronization can resume after a restart.
-
-If Brandweerrooster temporarily returns an HTTP 429/rate-limit response, the integration keeps the current FireServiceRota incident available instead of replacing it with an empty state.
-
-## Configurable Facebook dispatch message
-
-The `Uitrukbericht` sensor contains a `bericht` attribute with the generated Facebook message.
-
-On first setup, the integration creates this file automatically:
+Edit the template under **Configure → Dispatch message template**. The default is:
 
 ```text
-/config/brandweerrooster/facebook_template.yaml
+🚒 Brandweer {kazerne} uitgerukt – {classificatie}
+
+{uitrukbericht}
+📍 {locatie}
+🕐 Alarmering: {tijd}
+📟 Prioriteit: {prioriteit}
+🚒 Voertuigen: {voertuigen}
+
+Meer informatie volgt indien beschikbaar.
+
+#Brandweer #Hulpverlening
 ```
-
-The default template is:
-
-```yaml
-facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt – {classificatie}
-
-  {uitrukbericht}
-  📍 {locatie}
-  🕐 Alarmering: {tijd}
-  📟 Prioriteit: {prioriteit}
-  🚒 Voertuigen: {voertuigen}
-
-  Meer informatie volgt indien beschikbaar.
-
-  #Brandweer #Hulpverlening
-```
-
-**This is the default message used by a new installation.** You can edit the file at any time to change the wording, layout, emojis or hashtags. The integration does not overwrite an existing file.
-
-After changing the file, restart Home Assistant to load the new template.
-
-### Available placeholders
 
 | Placeholder | Example |
 |---|---|
 | `{kazerne}` | `Echt` |
+| `{classificatie}` | `Woningbrand`, `Buitenbrand` |
+| `{categorie}` | `Brand`, `Hulpverlening`, `OMS / automatische melding`, `Overig` |
 | `{uitrukbericht}` | `Voor een incident alert is de brandweer gealarmeerd.` |
 | `{incident_type}` | `incident alert` |
-| `{classificatie}` | `Buitenbrand`, `Woningbrand`, etc. |
 | `{melding}` | Parsed P2000 message text |
 | `{locatie}` | `Kraanbergweg Herkenbosch` |
-| `{straat}` | `Kraanbergweg` |
-| `{plaats}` | `Herkenbosch` |
-| `{tijd}` | `19:39 uur` |
-| `{datum}` | `10-08-2026` |
+| `{straat}` / `{plaats}` | `Kraanbergweg` / `Herkenbosch` |
+| `{tijd}` / `{datum}` | `19:39 uur` / `10-08-2026` |
 | `{prioriteit}` | `P1` |
 | `{voertuigen}` | `TS Echt, HV Echt` |
-| `{incident_id}` | `3008269` |
-| `{created_at}` | Original `created_at` value |
-| `{start_time}` | Original `start_time` value |
+| `{incident_id}`, `{created_at}`, `{start_time}` | Raw values |
 
-Unknown placeholders are left empty and logged as warnings. If a placeholder has no value, its template line is omitted when appropriate. This keeps the default vehicle/time/priority lines clean when the API does not provide that information.
+A line whose placeholder has no value is left out, so the vehicle line disappears when no vehicles are known. Unknown placeholders are rejected when saving.
 
-### Example custom template
-
-```yaml
-facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt
-
-  {uitrukbericht}
-
-  📍 {locatie}
-  ⏰ {tijd}
-  🚒 Eenheden: {voertuigen}
-
-  #Brandweer{kazerne} #Hulpverlening
-```
-
-The template is intentionally plain text. Markdown is not required and the result is copied directly to the clipboard by the dashboard.
+**Upgrading from 1.3.x:** a customised `/config/brandweerrooster/facebook_template.yaml` is imported into the options automatically once. After that the file is no longer used and can be deleted.
 
 ## Vehicle names
 
-The integration first uses explicit vehicle/appliance/unit information when Brandweerrooster provides it. If that information is not available, it extracts six-digit P2000 vehicle numbers from the actual incident message and resolves known codes through `custom_components/brandweerrooster/vehicles.py`.
+Vehicle names come from explicit vehicle data in the incident when Brandweerrooster provides it. Otherwise the six-digit P2000 numbers in the alert are translated using the **Vehicle names** list in the options. The list is pre-filled with Limburg-Noord vehicles; replace or extend it for your own region (`235331 = TS Echt`, one per line, `#` for comments). Unknown numbers are never guessed.
 
-`task_ids` and task names are **not** treated as vehicle names.
+## How it works (API usage)
 
-Unknown vehicle codes are not guessed. They remain available in the raw incident data but are not invented in the generated Facebook message.
+- The integration **does not poll** the incident list. It listens to the FireServiceRota incident sensor and only fetches an incident from Brandweerrooster when a new incident ID appears.
+- Crew assignments and responses are often added minutes after the alarm. After a new incident, the integration fetches it again after 15 s, 30 s, 1, 2, 5, 10 and 20 minutes, and stops early as soon as the crew is known and the data no longer changes.
+- If the API is unavailable or rate-limited during an alarm, the incident is still shown using the FireServiceRota data (attribute `bron: FireServiceRota`) and the API is retried. Your statistics are never changed by this fallback.
+- Statistics are built once from your full history in the background (throttled, resumes after a restart, pauses and retries automatically when rate-limited). A small catch-up runs every night to pick up incidents that happened while Home Assistant was offline and later corrections.
+- Month and year counters roll over at midnight.
+- If the FireServiceRota incident sensor does not exist, a **Repair** notification explains how to fix it.
 
-## API
+## Troubleshooting
 
-Brandweerrooster documents API v2 at:
-
-https://www.brandweerrooster.nl/apidocs/
-
-The API supports OAuth2, incidents, incident responses, groups, tasks, users, memberships and skills.
-
-## Security
-
-Credentials are stored in the Home Assistant config entry and are not committed to this repository. Never put a Brandweerrooster password or token in YAML, GitHub issues or commits.
+- **No incidents arrive**: check that FireServiceRota is working and that the right incident sensor is selected under *Configure*. Look under **Settings → Repairs**.
+- **Statistics look wrong**: press **Statistieken opnieuw synchroniseren**.
+- **Crew is empty**: Brandweerrooster may not have assigned anyone yet; the integration keeps checking for 20 minutes. Use **Incident verversen** to fetch it once more.
+- **Report a bug**: attach the **Download diagnostics** file (it is redacted) to an issue at <https://github.com/Anonymouse0104/ha-brandweerrooster/issues>.
 
 ## Development
 
-The project is intended as a Home Assistant custom integration and can be installed through HACS. Before publishing changes, run Home Assistant's `hassfest` validator and the repository's Python compile validation.
+```bash
+pip install pytest-homeassistant-custom-component
+pytest
+```
+
+CI runs Hassfest, HACS validation and the test suite on every push.
+
+## Security
+
+Credentials are stored in the Home Assistant config entry only. Never put a Brandweerrooster password or token in YAML, GitHub issues or commits.
 
 ## License
 

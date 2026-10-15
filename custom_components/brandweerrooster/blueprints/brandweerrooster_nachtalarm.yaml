@@ -1,0 +1,73 @@
+# managed-by: brandweerrooster
+# Deze blauwdruk wordt door de Brandweerrooster-integratie geïnstalleerd en bijgewerkt.
+# Wil je het bestand zelf aanpassen? Verwijder dan de eerste regel, dan blijft je versie staan.
+blueprint:
+  name: Brandweerrooster – nachtalarm
+  description: >-
+    Zet bij een alarm 's nachts de gekozen lampen aan, zodat je direct kunt
+    vertrekken. Optioneel voer je daarna nog eigen acties uit (bijvoorbeeld
+    gordijnen open of de garagedeur).
+  domain: automation
+  source_url: https://github.com/Anonymouse0104/ha-brandweerrooster/blob/main/custom_components/brandweerrooster/blueprints/brandweerrooster_nachtalarm.yaml
+  input:
+    incident_event:
+      name: Brandweerrooster-incident
+      description: De entiteit "Nieuw incident" van de Brandweerrooster-integratie.
+      selector:
+        entity:
+          filter:
+            - integration: brandweerrooster
+              domain: event
+    lights:
+      name: Lampen
+      selector:
+        target:
+          entity:
+            domain: light
+    brightness:
+      name: Helderheid
+      default: 80
+      selector:
+        number:
+          min: 1
+          max: 100
+          unit_of_measurement: "%"
+    start_time:
+      name: Vanaf
+      default: "22:30:00"
+      selector:
+        time: {}
+    end_time:
+      name: Tot
+      default: "07:00:00"
+      selector:
+        time: {}
+    extra_actions:
+      name: Extra acties (optioneel)
+      default: []
+      selector:
+        action: {}
+
+mode: single
+
+triggers:
+  - trigger: state
+    entity_id: !input incident_event
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state is not none
+         and trigger.to_state.state not in ['unavailable', 'unknown'] }}
+  - condition: time
+    after: !input start_time
+    before: !input end_time
+
+actions:
+  - action: light.turn_on
+    target: !input lights
+    data:
+      brightness_pct: !input brightness
+  - sequence: !input extra_actions

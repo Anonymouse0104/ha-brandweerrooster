@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Brandweerrooster koppelen",
-        "description": "Gebruik je Brandweerrooster-account. De integratie gebruikt de officiële Brandweerrooster API v2.",
+        "description": "Log in met je Brandweerrooster-account. De integratie gebruikt de officiële Brandweerrooster API v2.",
         "data": {
           "username": "E-mailadres",
           "password": "Wachtwoord"
@@ -11,12 +11,25 @@
       },
       "scope": {
         "title": "Kazerne en incidenten",
-        "description": "Kies de kazernegroep en eventueel extra groepen of taken die als relevant voor incidenten gelden. Incidenten worden ontvangen via de officiële FireServiceRota-integratie; de Brandweerrooster API wordt alleen bevraagd wanneer een nieuw incident wordt gedetecteerd.",
+        "description": "Kies je kazerne en eventueel extra groepen of taken. Incidenten komen binnen via de officiële FireServiceRota-integratie; de Brandweerrooster API wordt alleen bevraagd bij een nieuw incident.",
         "data": {
+          "person_name": "Jouw naam (voor persoonlijke statistieken)",
           "station_group_id": "Kazerne / hoofdgroep",
           "monitored_group_ids": "Extra groepen volgen",
           "monitored_task_ids": "Extra taken volgen",
-          "person_name": "Jouw naam (voor persoonlijke uitrukstatistieken)"
+          "incident_entity": "FireServiceRota-incidentsensor",
+          "crew_min_size": "Minimale bezetting (personen)"
+        },
+        "data_description": {
+          "incident_entity": "Meestal sensor.incidents van de FireServiceRota-integratie.",
+          "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Opnieuw aanmelden bij Brandweerrooster",
+        "description": "Het wachtwoord van {username} is niet meer geldig. Vul je huidige Brandweerrooster-wachtwoord in.",
+        "data": {
+          "password": "Wachtwoord"
         }
       }
     },
@@ -28,13 +41,126 @@
       "rate_limited": "Brandweerrooster heeft tijdelijk te veel API-verzoeken ontvangen. Wacht even en probeer het opnieuw."
     },
     "abort": {
-      "already_configured": "Dit Brandweerrooster-account is al geconfigureerd."
+      "already_configured": "Dit Brandweerrooster-account is al geconfigureerd.",
+      "reauth_successful": "Opnieuw aanmelden is gelukt."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Brandweerrooster instellingen",
+        "description": "Alle instellingen staan hier; je hoeft nergens YAML-bestanden aan te passen. Beschikbare velden voor het uitrukbericht: {placeholders}. Een regel waarvan een veld leeg is, wordt automatisch weggelaten.",
+        "data": {
+          "person_name": "Jouw naam (voor persoonlijke statistieken)",
+          "station_group_id": "Kazerne / hoofdgroep",
+          "monitored_group_ids": "Extra groepen volgen",
+          "monitored_task_ids": "Extra taken volgen",
+          "incident_entity": "FireServiceRota-incidentsensor",
+          "crew_min_size": "Minimale bezetting (personen)",
+          "facebook_template": "Sjabloon uitrukbericht",
+          "vehicle_names": "Voertuignamen (P2000-nummer = naam, één per regel)",
+          "install_blueprints": "Automatiseringsblauwdrukken installeren"
+        },
+        "data_description": {
+          "vehicle_names": "Bijvoorbeeld: 235331 = TS Echt. Regels die met # beginnen worden genegeerd.",
+          "install_blueprints": "Zet de meegeleverde blauwdrukken (melding, nachtalarm, uitrukbericht) klaar onder Automatiseringen → Blauwdrukken."
+        }
+      }
+    },
+    "error": {
+      "template_empty": "Het sjabloon mag niet leeg zijn.",
+      "template_unknown_placeholder": "Onbekende velden in het sjabloon: {details}",
+      "vehicle_invalid": "Deze regels zijn geen geldig 'nummer = naam': {details}"
     }
   },
   "entity": {
+    "sensor": {
+      "latest_incident": { "name": "Laatste incident" },
+      "last_alarm": { "name": "Laatste alarmering" },
+      "incident_distance": { "name": "Afstand tot incident" },
+      "crew": { "name": "Ingezet personeel" },
+      "response": { "name": "Opkomst" },
+      "current_user": { "name": "Gebruiker" },
+      "my_response": { "name": "Mijn opkomst" },
+      "uitrukbericht": { "name": "Uitrukbericht" },
+      "uitrukken_maand": { "name": "Uitrukken deze maand" },
+      "uitrukken_vorige_maand": { "name": "Uitrukken vorige maand" },
+      "uitrukken_jaar": { "name": "Uitrukken dit jaar" },
+      "uitrukken_totaal": { "name": "Uitrukken totaal" },
+      "uitrukken_niet_ingedeeld": { "name": "Opgekomen, niet ingedeeld" },
+      "response_rate_year": { "name": "Opkomstpercentage dit jaar" },
+      "last_turnout": { "name": "Laatste uitruk" }
+    },
+    "binary_sensor": {
+      "api_online": { "name": "API beschikbaar" },
+      "crew_complete": { "name": "Bezetting compleet" }
+    },
+    "button": {
+      "refresh_incident": { "name": "Incident verversen" },
+      "resync_statistics": { "name": "Statistieken opnieuw synchroniseren" }
+    },
     "event": {
       "new_incident": {
-        "name": "Nieuw incident"
+        "name": "Nieuw incident",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_incident": "Nieuw incident",
+              "p1_incident": "P1-incident",
+              "p2_incident": "P2-incident"
+            }
+          }
+        }
+      }
+    },
+    "geo_location": {
+      "incident_location": { "name": "Locatie laatste incident" }
+    }
+  },
+  "issues": {
+    "incident_entity_missing": {
+      "title": "FireServiceRota-incidentsensor niet gevonden",
+      "description": "Brandweerrooster ({title}) wacht op incidenten van {entity_id}, maar die entiteit bestaat niet. Installeer de FireServiceRota-integratie, of kies de juiste sensor via Instellingen → Apparaten & diensten → Brandweerrooster → Configureren."
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "Er is geen geladen Brandweerrooster-configuratie gevonden."
+    }
+  },
+  "services": {
+    "generate_message": {
+      "name": "Uitrukbericht maken",
+      "description": "Maakt het uitrukbericht voor het laatste incident en geeft het terug als antwoord, zodat je het in een automatisering kunt versturen.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuratie",
+          "description": "Welke Brandweerrooster-configuratie (optioneel; standaard de eerste)."
+        },
+        "template": {
+          "name": "Sjabloon",
+          "description": "Optioneel ander sjabloon voor dit ene bericht."
+        }
+      }
+    },
+    "refresh_incident": {
+      "name": "Incident verversen",
+      "description": "Haalt het laatste incident opnieuw op bij Brandweerrooster.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuratie",
+          "description": "Welke Brandweerrooster-configuratie (optioneel; standaard alle)."
+        }
+      }
+    },
+    "resync_statistics": {
+      "name": "Statistieken opnieuw synchroniseren",
+      "description": "Leest de volledige incidenthistorie opnieuw in (rustig, op de achtergrond).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuratie",
+          "description": "Welke Brandweerrooster-configuratie (optioneel; standaard alle)."
+        }
       }
     }
   }

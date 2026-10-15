@@ -5,12 +5,16 @@ on:
   pull_request:
 
 jobs:
-  compile:
+  tests:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
+          python-version: '3.14'
       - name: Compile integration
         run: python -m compileall -q custom_components
+      - name: Install test requirements
+        run: pip install pytest-homeassistant-custom-component
+      - name: Run tests
+        run: pytest -q

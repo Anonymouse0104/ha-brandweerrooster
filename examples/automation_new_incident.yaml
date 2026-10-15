@@ -1,24 +1,23 @@
-# Example automation for the Brandweerrooster event entity.
-# Adapt the notification service to your own Home Assistant installation.
+# Optional example. The same automation is available without any YAML as the
+# "Brandweerrooster – melding bij nieuw incident" blueprint.
+# Replace the entity ID and notify action with your own.
 
 alias: Brandweerrooster - P1 notification
 description: Send a notification when a new P1 incident is detected.
 triggers:
-  - trigger: event.received
-    target:
-      entity_id: event.brandweerrooster_new_incident
-    options:
-      event_type:
-        - p1_incident
-conditions: []
+  - trigger: state
+    entity_id: event.brandweerrooster_nieuw_incident
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state.attributes.event_type == 'p1_incident' }}
 actions:
   - action: notify.mobile_app_your_phone
     data:
-      title: "🚒 P1 brandweermelding"
+      title: "🚒 P1 {{ trigger.to_state.attributes.classificatie }}"
       message: >-
-        {{ trigger.event.data.melding }}
-        - {{ trigger.event.data.locatie }}
-        {% if trigger.event.data.voertuigen %}
-        - Voertuigen: {{ trigger.event.data.voertuigen | join(', ') }}
-        {% endif %}
-mode: single
+        {{ trigger.to_state.attributes.melding }}
+        - {{ trigger.to_state.attributes.locatie }}
+mode: queued

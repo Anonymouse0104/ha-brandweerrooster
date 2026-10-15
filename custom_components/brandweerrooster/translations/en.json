@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect Brandweerrooster",
-        "description": "Use your Brandweerrooster account. The integration uses the documented Brandweerrooster API v2.",
+        "description": "Sign in with your Brandweerrooster account. The integration uses the official Brandweerrooster API v2.",
         "data": {
           "username": "Email address",
           "password": "Password"
@@ -11,12 +11,25 @@
       },
       "scope": {
         "title": "Station and incidents",
-        "description": "Choose the station/group and optionally additional groups or tasks that should count as relevant incidents. Incidents are received from the official FireServiceRota integration; the Brandweerrooster API is queried only when a new incident is detected.",
+        "description": "Choose your station and optionally additional groups or tasks. Incidents are received from the official FireServiceRota integration; the Brandweerrooster API is only queried when a new incident arrives.",
         "data": {
+          "person_name": "Your name (for personal statistics)",
           "station_group_id": "Station / main group",
           "monitored_group_ids": "Additional groups",
           "monitored_task_ids": "Additional tasks",
-          "person_name": "Your name (for personal incident statistics)"
+          "incident_entity": "FireServiceRota incident sensor",
+          "crew_min_size": "Minimum crew size (people)"
+        },
+        "data_description": {
+          "incident_entity": "Usually sensor.incidents from the FireServiceRota integration.",
+          "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Sign in to Brandweerrooster again",
+        "description": "The password for {username} is no longer valid. Enter your current Brandweerrooster password.",
+        "data": {
+          "password": "Password"
         }
       }
     },
@@ -28,13 +41,126 @@
       "rate_limited": "Brandweerrooster is temporarily rate limiting API requests. Wait a moment and try again."
     },
     "abort": {
-      "already_configured": "This Brandweerrooster account is already configured."
+      "already_configured": "This Brandweerrooster account is already configured.",
+      "reauth_successful": "Re-authentication was successful."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Brandweerrooster settings",
+        "description": "All settings live here; no YAML files need to be edited. Placeholders for the dispatch message: {placeholders}. A line with an empty placeholder is left out automatically.",
+        "data": {
+          "person_name": "Your name (for personal statistics)",
+          "station_group_id": "Station / main group",
+          "monitored_group_ids": "Additional groups",
+          "monitored_task_ids": "Additional tasks",
+          "incident_entity": "FireServiceRota incident sensor",
+          "crew_min_size": "Minimum crew size (people)",
+          "facebook_template": "Dispatch message template",
+          "vehicle_names": "Vehicle names (P2000 number = name, one per line)",
+          "install_blueprints": "Install automation blueprints"
+        },
+        "data_description": {
+          "vehicle_names": "For example: 235331 = TS Echt. Lines starting with # are ignored.",
+          "install_blueprints": "Puts the bundled blueprints (notification, night alarm, dispatch message) under Automations → Blueprints."
+        }
+      }
+    },
+    "error": {
+      "template_empty": "The template cannot be empty.",
+      "template_unknown_placeholder": "Unknown placeholders in the template: {details}",
+      "vehicle_invalid": "These lines are not a valid 'number = name': {details}"
     }
   },
   "entity": {
+    "sensor": {
+      "latest_incident": { "name": "Latest incident" },
+      "last_alarm": { "name": "Last alarm" },
+      "incident_distance": { "name": "Distance to incident" },
+      "crew": { "name": "Assigned personnel" },
+      "response": { "name": "Responses" },
+      "current_user": { "name": "User" },
+      "my_response": { "name": "My response" },
+      "uitrukbericht": { "name": "Dispatch message" },
+      "uitrukken_maand": { "name": "Turnouts this month" },
+      "uitrukken_vorige_maand": { "name": "Turnouts last month" },
+      "uitrukken_jaar": { "name": "Turnouts this year" },
+      "uitrukken_totaal": { "name": "Turnouts total" },
+      "uitrukken_niet_ingedeeld": { "name": "Responded, not assigned" },
+      "response_rate_year": { "name": "Response rate this year" },
+      "last_turnout": { "name": "Last turnout" }
+    },
+    "binary_sensor": {
+      "api_online": { "name": "API available" },
+      "crew_complete": { "name": "Crew complete" }
+    },
+    "button": {
+      "refresh_incident": { "name": "Refresh incident" },
+      "resync_statistics": { "name": "Resynchronise statistics" }
+    },
     "event": {
       "new_incident": {
-        "name": "New incident"
+        "name": "New incident",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "new_incident": "New incident",
+              "p1_incident": "P1 incident",
+              "p2_incident": "P2 incident"
+            }
+          }
+        }
+      }
+    },
+    "geo_location": {
+      "incident_location": { "name": "Latest incident location" }
+    }
+  },
+  "issues": {
+    "incident_entity_missing": {
+      "title": "FireServiceRota incident sensor not found",
+      "description": "Brandweerrooster ({title}) listens for incidents from {entity_id}, but that entity does not exist. Install the FireServiceRota integration, or pick the right sensor under Settings → Devices & services → Brandweerrooster → Configure."
+    }
+  },
+  "exceptions": {
+    "entry_not_loaded": {
+      "message": "No loaded Brandweerrooster configuration was found."
+    }
+  },
+  "services": {
+    "generate_message": {
+      "name": "Generate dispatch message",
+      "description": "Builds the dispatch message for the latest incident and returns it as a response, so an automation can send it.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuration",
+          "description": "Which Brandweerrooster configuration (optional; defaults to the first)."
+        },
+        "template": {
+          "name": "Template",
+          "description": "Optional alternative template for this message only."
+        }
+      }
+    },
+    "refresh_incident": {
+      "name": "Refresh incident",
+      "description": "Fetches the latest incident from Brandweerrooster again.",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuration",
+          "description": "Which Brandweerrooster configuration (optional; defaults to all)."
+        }
+      }
+    },
+    "resync_statistics": {
+      "name": "Resynchronise statistics",
+      "description": "Reads the full incident history again (slowly, in the background).",
+      "fields": {
+        "config_entry_id": {
+          "name": "Configuration",
+          "description": "Which Brandweerrooster configuration (optional; defaults to all)."
+        }
       }
     }
   }

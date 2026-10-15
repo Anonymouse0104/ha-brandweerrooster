@@ -1,74 +1,27 @@
-"""Configurable Facebook dispatch message templates."""
+"""Configurable Facebook dispatch message template.
+
+The template is edited in the integration options (Settings → Devices &
+services → Brandweerrooster → Configure). Older versions stored it in
+``/config/brandweerrooster/facebook_template.yaml``; a customised file is
+imported into the options once.
+"""
 
 from __future__ import annotations
 
 import logging
-import re
 from pathlib import Path
+import re
 from typing import Any
 
 import yaml
+
 from homeassistant.core import HomeAssistant
 
 _LOGGER = logging.getLogger(__name__)
 
-TEMPLATE_DIRECTORY = "brandweerrooster"
-TEMPLATE_FILENAME = "facebook_template.yaml"
+LEGACY_TEMPLATE_PATH = ("brandweerrooster", "facebook_template.yaml")
 
-DEFAULT_TEMPLATE = """# Brandweerrooster Facebook dispatch message template
-#
-# Available placeholders:
-# {kazerne}
-# {uitrukbericht}
-# {incident_type}
-# {classificatie}
-# {melding}
-# {locatie}
-# {straat}
-# {plaats}
-# {tijd}
-# {datum}
-# {prioriteit}
-# {voertuigen}
-# {incident_id}
-# {created_at}
-# {start_time}
-#
-# You can change the text, line breaks, emojis and hashtags below.
-# The integration will not overwrite this file after it has been created.
-
-facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt – {classificatie}
-
-  {uitrukbericht}
-  📍 {locatie}
-  🕐 Alarmering: {tijd}
-  📟 Prioriteit: {prioriteit}
-  🚒 Voertuigen: {voertuigen}
-
-  Meer informatie volgt indien beschikbaar.
-
-  #Brandweer #Hulpverlening
-"""
-
-
-LEGACY_DEFAULT_TEMPLATES = (
-    """facebook_template: |
-  🚒 Brandweer {kazerne} uitgerukt
-
-  {uitrukbericht}
-  📍 {locatie}
-  🕐 Alarmering: {tijd}
-  📟 Prioriteit: {prioriteit}
-  🚒 Voertuigen: {voertuigen}
-
-  Meer informatie volgt indien beschikbaar.
-
-  #Brandweer #Hulpverlening
-""",
-)
-
-LEGACY_DEFAULT_BODY = """🚒 Brandweer {kazerne} uitgerukt
+DEFAULT_TEMPLATE = """🚒 Brandweer {kazerne} uitgerukt – {classificatie}
 
 {uitrukbericht}
 📍 {locatie}
@@ -80,11 +33,29 @@ Meer informatie volgt indien beschikbaar.
 
 #Brandweer #Hulpverlening"""
 
+# Built-in defaults of earlier versions. A legacy file that still contains one
+# of these was never customised and is not imported.
+_LEGACY_DEFAULT_BODIES = (
+    DEFAULT_TEMPLATE,
+    """🚒 Brandweer {kazerne} uitgerukt
+
+{uitrukbericht}
+📍 {locatie}
+🕐 Alarmering: {tijd}
+📟 Prioriteit: {prioriteit}
+🚒 Voertuigen: {voertuigen}
+
+Meer informatie volgt indien beschikbaar.
+
+#Brandweer #Hulpverlening""",
+)
+
 PLACEHOLDERS = (
     "kazerne",
     "uitrukbericht",
     "incident_type",
     "classificatie",
+    "categorie",
     "melding",
     "locatie",
     "straat",
@@ -98,132 +69,56 @@ PLACEHOLDERS = (
     "start_time",
 )
 
-
-class FacebookTemplate:
-    """Load and render the user-configurable Facebook message template."""
-
-    def __init__(self, hass: HomeAssistant) -> None:
-        self.hass = hass
-        self.path = Path(hass.config.path(TEMPLATE_DIRECTORY, TEMPLATE_FILENAME))
-        self.template = ""
-
-    async def async_load(self) -> None:
-        """Create the default file when needed and load the configured template."""
-        await self.hass.async_add_executor_job(self._load_sync)
-
-    def _load_sync(self) -> None:
-        try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            if not self.path.exists():
-                self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
-            raw_text = self.path.read_text(encoding="utf-8")
-            if raw_text.strip() in {template.strip() for template in LEGACY_DEFAULT_TEMPLATES}:
-                self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
-                raw_text = DEFAULT_TEMPLATE
-            raw = yaml.safe_load(raw_text)
-        except (OSError, yaml.YAMLError) as err:
-            _LOGGER.error(
-                "Unable to read Facebook template %s: %s. Using the built-in default.",
-                self.path,
-                err,
-            )
-            self.template = _extract_default_template()
-            return
-
-        template: Any = raw.get("facebook_template") if isinstance(raw, dict) else raw
-        if isinstance(template, str) and template.strip() == LEGACY_DEFAULT_BODY.strip():
-            # Upgrade the built-in default template from versions before 1.3.8.
-            # This only changes the untouched default; user-customized layouts,
-            # hashtags, emojis, or wording are preserved.
-            self.path.write_text(DEFAULT_TEMPLATE, encoding="utf-8")
-            raw = yaml.safe_load(DEFAULT_TEMPLATE)
-            template = raw["facebook_template"]
-        if not isinstance(template, str) or not template.strip():
-            _LOGGER.error(
-                "Facebook template %s does not contain a non-empty 'facebook_template' value. "
-                "Using the built-in default.",
-                self.path,
-            )
-            self.template = _extract_default_template()
-            return
-
-        self.template = template.rstrip("\n")
-        unknown = sorted(
-            {
-                name
-                for name in _find_placeholders(self.template)
-                if name not in PLACEHOLDERS
-            }
-        )
-        if unknown:
-            _LOGGER.warning(
-                "Facebook template %s contains unknown placeholders: %s",
-                self.path,
-                ", ".join(unknown),
-            )
-
-        _LOGGER.debug("Loaded Facebook template from %s", self.path)
-
-    async def async_reload(self) -> None:
-        """Reload the template from disk."""
-        await self.async_load()
-
-    def render(self, values: dict[str, Any]) -> str:
-        """Render the configured template with the supplied placeholder values."""
-        template = self.template or _extract_default_template()
-        result_lines: list[str] = []
-
-        for line in template.splitlines():
-            original = line
-            rendered = _replace_placeholders(line, values)
-
-            # If a placeholder has no value, remove a line that consists of
-            # that placeholder plus its usual label/punctuation. This keeps
-            # the default template clean when, for example, no vehicle data
-            # is available.
-            if _line_has_empty_placeholder(original, values):
-                if not rendered.strip() or _is_placeholder_only_line(original):
-                    continue
-                # For labelled lines such as "🚒 Voertuigen: {voertuigen}",
-                # remove the whole line when its placeholder is empty.
-                empty_names = [
-                    name
-                    for name in PLACEHOLDERS
-                    if "{" + name + "}" in original
-                    and not str(values.get(name, "") or "").strip()
-                ]
-                if empty_names:
-                    continue
-
-            result_lines.append(rendered.rstrip())
-
-        return "\n".join(result_lines).strip()
+_PLACEHOLDER_RE = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def _extract_default_template() -> str:
-    """Return the default template body without the YAML wrapper."""
-    raw = yaml.safe_load(DEFAULT_TEMPLATE)
-    return str(raw["facebook_template"]).rstrip("\n")
+def find_placeholders(template: str) -> list[str]:
+    return _PLACEHOLDER_RE.findall(template)
 
 
-def _find_placeholders(template: str) -> list[str]:
-    return re.findall(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", template)
+def unknown_placeholders(template: str) -> list[str]:
+    return sorted({name for name in find_placeholders(template) if name not in PLACEHOLDERS})
 
 
-def _replace_placeholders(template: str, values: dict[str, Any]) -> str:
-    def replace(match: re.Match[str]) -> str:
-        name = match.group(1)
-        return str(values.get(name, "") or "")
+def render(template: str | None, values: dict[str, Any]) -> str:
+    """Render the template with the supplied placeholder values.
 
-    return re.sub(r"\{([A-Za-z_][A-Za-z0-9_]*)\}", replace, template)
+    A line whose placeholder has no value is left out, so for example the
+    vehicle line disappears when no vehicles are known.
+    """
+    template = template if template and template.strip() else DEFAULT_TEMPLATE
+    result_lines: list[str] = []
+
+    for line in template.splitlines():
+        names = [name for name in find_placeholders(line) if name in PLACEHOLDERS]
+        if any(not str(values.get(name, "") or "").strip() for name in names):
+            continue
+        rendered = _PLACEHOLDER_RE.sub(lambda match: str(values.get(match.group(1), "") or ""), line)
+        result_lines.append(rendered.rstrip())
+
+    # Collapse runs of blank lines left behind by removed lines.
+    text = "\n".join(result_lines).strip()
+    return re.sub(r"\n{3,}", "\n\n", text)
 
 
-def _line_has_empty_placeholder(line: str, values: dict[str, Any]) -> bool:
-    return any(
-        "{" + name + "}" in line and not str(values.get(name, "") or "").strip()
-        for name in PLACEHOLDERS
-    )
+async def async_read_legacy_template(hass: HomeAssistant) -> str | None:
+    """Return a customised template from the pre-1.4 YAML file, if any."""
+    path = Path(hass.config.path(*LEGACY_TEMPLATE_PATH))
+    return await hass.async_add_executor_job(_read_legacy_sync, path)
 
 
-def _is_placeholder_only_line(line: str) -> bool:
-    return bool(re.fullmatch(r"\s*\{[A-Za-z_][A-Za-z0-9_]*\}\s*", line))
+def _read_legacy_sync(path: Path) -> str | None:
+    if not path.exists():
+        return None
+    try:
+        raw = yaml.safe_load(path.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError) as err:
+        _LOGGER.warning("Oud Facebook-sjabloon %s kon niet worden gelezen: %s", path, err)
+        return None
+    template: Any = raw.get("facebook_template") if isinstance(raw, dict) else raw
+    if not isinstance(template, str) or not template.strip():
+        return None
+    template = template.rstrip("\n")
+    if template.strip() in {body.strip() for body in _LEGACY_DEFAULT_BODIES}:
+        return None
+    return template

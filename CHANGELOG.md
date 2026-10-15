@@ -1,0 +1,78 @@
+# Changelog
+
+## 1.4.0
+
+Requires Home Assistant 2025.8 or newer.
+
+### Everything in the UI
+- New **options flow**: change station, groups, tasks, FireServiceRota sensor, minimum crew size, the Facebook template and vehicle names without removing the integration.
+- The Facebook template is edited in the UI. A customised `/config/brandweerrooster/facebook_template.yaml` is imported once; the file is no longer used.
+- Vehicle names (P2000 number → name) are configurable in the UI instead of hard-coded for Limburg-Noord.
+- **Re-authentication flow**: when the password changes Home Assistant asks for the new one instead of failing.
+- The FireServiceRota incident sensor is selectable; a **Repair** issue appears when it is missing.
+
+### Reliability fixes
+- Statistics were deleted when an incident could only be shown from FireServiceRota data (e.g. during a rate-limit). Fallback data never changes statistics anymore.
+- Month/year counters now roll over at midnight instead of on the next incident.
+- Incident timestamps are converted to local time, so incidents around midnight at the end of a month count in the right month.
+- *API beschikbaar* now reflects the actual last API call (it was always on).
+- Crew enrichment runs for up to 20 minutes on a slowing schedule (was 25 seconds) and stops once the data is complete and stable.
+- A nightly catch-up picks up incidents missed while Home Assistant was offline.
+- The history sync pauses on rate-limits and resumes automatically (honours `Retry-After`), with throttling between detail requests.
+- Incidents the account cannot see (HTTP 4xx) are ignored instead of shown from fallback data; incidents for other stations are not fetched again on every FireServiceRota update.
+- Concurrent requests refresh an expired token only once; server errors are no longer reported as invalid credentials.
+- `fireservicerota` is declared as `after_dependencies`, so it loads first.
+
+### New
+- Sensors: *Laatste alarmering*, *Afstand tot incident*, *Uitrukken vorige maand*, *Opkomstpercentage dit jaar*, *Laatste uitruk*.
+- Binary sensor *Bezetting compleet* (commander + driver + minimum crew size).
+- `geo_location` entity so the incident appears on the map.
+- Buttons *Incident verversen* and *Statistieken opnieuw synchroniseren*.
+- Actions `brandweerrooster.generate_message` (returns the message), `refresh_incident`, `resync_statistics`.
+- Statistics per function, category, classification and time of day; declined alarms are recorded for the response rate. Existing installations re-sync history once in the background to fill these.
+- Event data now includes `classificatie`, `categorie`, `bericht` and `afstand_km`.
+- `{categorie}` template placeholder.
+- Three automation blueprints installed automatically: notification, night alarm, dispatch message to phone.
+- Download diagnostics (redacted) replaces the *API diagnose laatste incident* sensor.
+
+### Privacy
+- Crew names and response lists are excluded from the recorder database.
+- The user sensor no longer exposes e-mail, phone or other personal fields.
+
+### Other
+- Entity names are translated (Dutch/English); existing entity IDs are unchanged.
+- Uses `entry.runtime_data`, a shared base entity and an explicit coordinator config entry.
+- Test suite (pytest-homeassistant-custom-component) added and run in CI.
+- Individual `RELEASE_*.md` files replaced by this changelog.
+
+### Breaking changes
+- The *API diagnose laatste incident* sensor was removed; use **Download diagnostics**. You can delete the orphaned entity.
+- The unused event type `other_incident` was removed.
+- *Ingezet personeel* now counts unique people (a person with two functions counts once).
+
+## 1.3.9
+- Fixed migration of the built-in Facebook template so existing default installations get the `{classificatie}` heading.
+
+## 1.3.8
+- New `{classificatie}` placeholder (e.g. `Woningbrand`, `Buitenbrand`).
+
+## 1.3.7
+- Assigned crew is derived only from `incident_skill_assignments`; responses only enrich assigned people. Stable role ordering.
+
+## 1.3.5 / 1.3.4 / 1.3.3
+- Config-entry-only schema, manifest ordering, brand assets, HACS and Hassfest workflows.
+
+## 1.3.2
+- Short retry window to pick up crew assignments after a new incident.
+
+## 1.3.1
+- Picks up the current incident when FireServiceRota loads after this integration.
+
+## 1.3.0
+- Event entity for new incidents; latitude/longitude on the latest incident.
+
+## 1.2.0
+- Configurable Facebook dispatch template.
+
+## 1.1.9
+- The public station name no longer uses the config-entry title.

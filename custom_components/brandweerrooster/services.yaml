@@ -1,0 +1,24 @@
+generate_message:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: brandweerrooster
+    template:
+      selector:
+        text:
+          multiline: true
+
+refresh_incident:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: brandweerrooster
+
+resync_statistics:
+  fields:
+    config_entry_id:
+      selector:
+        config_entry:
+          integration: brandweerrooster

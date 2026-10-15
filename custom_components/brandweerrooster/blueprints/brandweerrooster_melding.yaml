@@ -1,0 +1,72 @@
+# managed-by: brandweerrooster
+# Deze blauwdruk wordt door de Brandweerrooster-integratie geïnstalleerd en bijgewerkt.
+# Wil je het bestand zelf aanpassen? Verwijder dan de eerste regel, dan blijft je versie staan.
+blueprint:
+  name: Brandweerrooster – melding bij nieuw incident
+  description: >-
+    Stuurt een pushmelding naar je telefoon zodra Brandweerrooster een nieuw
+    incident meldt, met melding, locatie, prioriteit en afstand.
+  domain: automation
+  source_url: https://github.com/Anonymouse0104/ha-brandweerrooster/blob/main/custom_components/brandweerrooster/blueprints/brandweerrooster_melding.yaml
+  input:
+    incident_event:
+      name: Brandweerrooster-incident
+      description: De entiteit "Nieuw incident" van de Brandweerrooster-integratie.
+      selector:
+        entity:
+          filter:
+            - integration: brandweerrooster
+              domain: event
+    notify_device:
+      name: Telefoon
+      description: Het apparaat met de Home Assistant-app dat de melding krijgt.
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    event_types:
+      name: Voor welke incidenten
+      default:
+        - p1_incident
+        - p2_incident
+        - new_incident
+      selector:
+        select:
+          multiple: true
+          options:
+            - label: P1
+              value: p1_incident
+            - label: P2
+              value: p2_incident
+            - label: Overige prioriteit
+              value: new_incident
+
+mode: queued
+
+triggers:
+  - trigger: state
+    entity_id: !input incident_event
+
+variables:
+  event_types: !input event_types
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state is not none
+         and trigger.to_state.state not in ['unavailable', 'unknown']
+         and trigger.to_state.attributes.event_type in event_types }}
+
+actions:
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: >-
+      🚒 {{ trigger.to_state.attributes.prioriteit or '' }}
+      {{ trigger.to_state.attributes.classificatie or 'Brandweeralarm' }}
+    message: |-
+      {% set a = trigger.to_state.attributes %}{{ a.melding }}
+      📍 {{ a.locatie }}{% if a.afstand_km is defined %} ({{ a.afstand_km }} km){% endif %}
+      🚒 {{ (a.voertuigen or []) | join(', ') or 'voertuigen onbekend' }}

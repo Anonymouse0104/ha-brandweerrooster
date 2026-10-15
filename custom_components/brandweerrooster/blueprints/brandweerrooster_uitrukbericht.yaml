@@ -1,0 +1,59 @@
+# managed-by: brandweerrooster
+# Deze blauwdruk wordt door de Brandweerrooster-integratie geïnstalleerd en bijgewerkt.
+# Wil je het bestand zelf aanpassen? Verwijder dan de eerste regel, dan blijft je versie staan.
+blueprint:
+  name: Brandweerrooster – uitrukbericht naar telefoon
+  description: >-
+    Stuurt na een alarm het kant-en-klare uitrukbericht (Facebook-tekst) naar
+    je telefoon, zodat je het meteen kunt kopiëren en plaatsen. De tekst stel
+    je in bij de integratie-opties.
+  domain: automation
+  source_url: https://github.com/Anonymouse0104/ha-brandweerrooster/blob/main/custom_components/brandweerrooster/blueprints/brandweerrooster_uitrukbericht.yaml
+  input:
+    incident_event:
+      name: Brandweerrooster-incident
+      description: De entiteit "Nieuw incident" van de Brandweerrooster-integratie.
+      selector:
+        entity:
+          filter:
+            - integration: brandweerrooster
+              domain: event
+    notify_device:
+      name: Telefoon
+      selector:
+        device:
+          filter:
+            - integration: mobile_app
+    delay:
+      name: Wachttijd
+      description: Even wachten zodat voertuigen en details zijn bijgewerkt.
+      default:
+        minutes: 2
+      selector:
+        duration: {}
+
+mode: restart
+
+triggers:
+  - trigger: state
+    entity_id: !input incident_event
+
+conditions:
+  - condition: template
+    value_template: >-
+      {{ trigger.from_state is not none
+         and trigger.from_state.state != 'unavailable'
+         and trigger.to_state is not none
+         and trigger.to_state.state not in ['unavailable', 'unknown'] }}
+
+actions:
+  - delay: !input delay
+  - action: brandweerrooster.generate_message
+    response_variable: uitruk
+  - condition: template
+    value_template: "{{ uitruk.bericht | length > 0 }}"
+  - device_id: !input notify_device
+    domain: mobile_app
+    type: notify
+    title: "📋 Uitrukbericht klaar"
+    message: "{{ uitruk.bericht }}"

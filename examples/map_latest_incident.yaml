@@ -1,8 +1,9 @@
-# Example Home Assistant map card.
-# Replace the entity ID with the actual Latest incident entity created by
-# your Brandweerrooster config entry.
+# Optional dashboard card: shows the latest incident and your home on a map.
+# The incident appears automatically on the built-in Map panel as well.
 
 type: map
+geo_location_sources:
+  - brandweerrooster
 entities:
-  - entity: sensor.brandweerrooster_latest_incident
-    name: Latest incident
+  - zone.home
+hours_to_show: 0
