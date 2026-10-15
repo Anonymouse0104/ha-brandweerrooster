@@ -399,6 +399,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         """Synchronise personal history once, in the background, with throttling."""
         page = self.statistics.history_page
         first = True
+        previous_ids: set[Any] = set()
         cancelled = False
         self.history_sync_running = True
         report = self.history_report = _new_report(page)
@@ -409,10 +410,18 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                     await asyncio.sleep(HISTORY_PAGE_DELAY)
                 first = False
                 incidents = await self.api.async_get_incidents(per_page=HISTORY_PAGE_SIZE, page=page)
-                report["paginas"] += 1
-                await self._async_record_page(incidents, report)
+                # The API may return fewer items per page than requested (it
+                # caps per_page), so only an empty page - or the same page
+                # again - marks the end of the history.
+                ids = {incident.get("id") for incident in incidents}
+                repeated = bool(incidents) and ids == previous_ids
+                if incidents and not repeated:
+                    report["paginas"] += 1
+                    await self._async_record_page(incidents, report)
+                    self.async_update_listeners()  # show progress in the attributes
+                done =not incidents or repeated or page >= HISTORY_MAX_PAGES
+                previous_ids = ids
                 page += 1
-                done = len(incidents) < HISTORY_PAGE_SIZE or page > HISTORY_MAX_PAGES
                 await self.statistics.async_save(
                     history_complete=True if done else False,
                     history_page=1 if done else page,

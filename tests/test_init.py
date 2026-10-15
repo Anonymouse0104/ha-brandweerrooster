@@ -264,6 +264,17 @@ async def test_services_and_buttons(hass: HomeAssistant, mock_api, config_entry)
     total = hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal"))
     assert total.attributes["historie_samenvatting"]["status"] == "klaar"
 
+    # Pages with fewer items than requested are not the end; only an empty page is.
+    other = [make_incident(1000 + n, group=300) for n in range(20)]
+    mock_api["incidents"].side_effect = [other, [make_incident(12)], []]
+    with patch("custom_components.brandweerrooster.coordinator.HISTORY_PAGE_DELAY", 0):
+        await hass.services.async_call(DOMAIN, "resync_statistics", {}, blocking=True)
+        await hass.async_block_till_done(wait_background_tasks=True)
+    assert "12" in coordinator.statistics.events
+    assert coordinator.history_report["paginas"] == 2
+    assert coordinator.history_report["incidenten"] == 21
+    mock_api["incidents"].side_effect = None
+
     # List items without responses or scope fields are fetched in detail.
     bare = {"id": 11, "body": "P 1 BR woning"}
     mock_api["incidents"].return_value = [bare]

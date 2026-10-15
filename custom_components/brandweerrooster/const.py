@@ -24,7 +24,7 @@ DEFAULT_CREW_MIN_SIZE = 6
 PLATFORMS = ["binary_sensor", "button", "event", "geo_location", "sensor"]
 
 # Throttling for the one-time history synchronisation.
-HISTORY_PAGE_SIZE = 100
+HISTORY_PAGE_SIZE = 50  # the API returns at most 50 incidents per page
 HISTORY_PAGE_DELAY = 2.0
 HISTORY_DETAIL_DELAY = 0.5
 HISTORY_MAX_PAGES = 1000

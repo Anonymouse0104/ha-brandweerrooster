@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.4.2
+
+### Fixes
+- History sync stopped after the first page. The API returns at most 50 incidents per page, and a page with fewer items than requested was treated as the last one. The sync now continues until an empty page. Accounts that can see incidents of many groups (e.g. an OvD) now get their full history.
+- `historie_samenvatting` updates after every page, so progress is visible while the sync runs.
+
+After updating, press **Statistieken opnieuw synchroniseren** once.
+
 ## 1.4.1
 
 ### Fixes
