@@ -41,6 +41,7 @@ Copy `custom_components/brandweerrooster` to `/config/custom_components/brandwee
    - **Station / main group**: the group whose incidents count as "yours".
    - **Additional groups / tasks** (optional): extra groups or tasks that should also count.
    - **FireServiceRota incident sensor**: normally `sensor.incidents`; pick another one if yours has a different entity ID.
+   - **How is a turnout counted?**: choose *Standby duty* if you are an OvD or on another standby duty and don't confirm your turnout in the app.
    - **Minimum crew size**: used for the *Crew complete* sensor (e.g. 6 for a TS, 4 for a TS-4).
 
 ### Changing settings later
@@ -51,6 +52,7 @@ Everything can be changed afterwards under **Settings → Devices & services →
 |---|---|
 | Station, groups, tasks | Which incidents are relevant |
 | FireServiceRota incident sensor | The entity that triggers incident processing |
+| How is a turnout counted? | *Turnout confirmed in the app* (crew, default) or *Standby duty* (OvD and other standby duties that don't confirm in the app: every alarm received while on duty counts, unless declined). Changing it rebuilds the statistics. |
 | Minimum crew size | Threshold for *Crew complete* |
 | Dispatch message template | The text of the Facebook message (see below) |
 | Vehicle names | P2000 number → readable name, one per line (`235331 = TS Echt`) |

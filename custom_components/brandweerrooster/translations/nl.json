@@ -18,11 +18,13 @@
           "monitored_group_ids": "Extra groepen volgen",
           "monitored_task_ids": "Extra taken volgen",
           "incident_entity": "FireServiceRota-incidentsensor",
-          "crew_min_size": "Minimale bezetting (personen)"
+          "crew_min_size": "Minimale bezetting (personen)",
+          "turnout_mode": "Hoe tel je een uitruk?"
         },
         "data_description": {
           "incident_entity": "Meestal sensor.incidents van de FireServiceRota-integratie.",
-          "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4."
+          "crew_min_size": "Bijvoorbeeld 6 voor een TS (1 bevelvoerder, 1 chauffeur, 4 manschappen) of 4 voor een TS-4.",
+          "turnout_mode": "Kies 'Piketdienst' als je OvD of piket bent en je opkomst niet in de app bevestigt. Bij een wijziging worden de statistieken opnieuw opgebouwd."
         }
       },
       "reauth_confirm": {
@@ -59,11 +61,13 @@
           "crew_min_size": "Minimale bezetting (personen)",
           "facebook_template": "Sjabloon uitrukbericht",
           "vehicle_names": "Voertuignamen (P2000-nummer = naam, één per regel)",
-          "install_blueprints": "Automatiseringsblauwdrukken installeren"
+          "install_blueprints": "Automatiseringsblauwdrukken installeren",
+          "turnout_mode": "Hoe tel je een uitruk?"
         },
         "data_description": {
           "vehicle_names": "Bijvoorbeeld: 235331 = TS Echt. Regels die met # beginnen worden genegeerd.",
-          "install_blueprints": "Zet de meegeleverde blauwdrukken (melding, nachtalarm, uitrukbericht) klaar onder Automatiseringen → Blauwdrukken."
+          "install_blueprints": "Zet de meegeleverde blauwdrukken (melding, nachtalarm, uitrukbericht) klaar onder Automatiseringen → Blauwdrukken.",
+          "turnout_mode": "Kies 'Piketdienst' als je OvD of piket bent en je opkomst niet in de app bevestigt. Bij een wijziging worden de statistieken opnieuw opgebouwd."
         }
       }
     },
@@ -75,29 +79,67 @@
   },
   "entity": {
     "sensor": {
-      "latest_incident": { "name": "Laatste incident" },
-      "last_alarm": { "name": "Laatste alarmering" },
-      "incident_distance": { "name": "Afstand tot incident" },
-      "crew": { "name": "Ingezet personeel" },
-      "response": { "name": "Opkomst" },
-      "current_user": { "name": "Gebruiker" },
-      "my_response": { "name": "Mijn opkomst" },
-      "uitrukbericht": { "name": "Uitrukbericht" },
-      "uitrukken_maand": { "name": "Uitrukken deze maand" },
-      "uitrukken_vorige_maand": { "name": "Uitrukken vorige maand" },
-      "uitrukken_jaar": { "name": "Uitrukken dit jaar" },
-      "uitrukken_totaal": { "name": "Uitrukken totaal" },
-      "uitrukken_niet_ingedeeld": { "name": "Opgekomen, niet ingedeeld" },
-      "response_rate_year": { "name": "Opkomstpercentage dit jaar" },
-      "last_turnout": { "name": "Laatste uitruk" }
+      "latest_incident": {
+        "name": "Laatste incident"
+      },
+      "last_alarm": {
+        "name": "Laatste alarmering"
+      },
+      "incident_distance": {
+        "name": "Afstand tot incident"
+      },
+      "crew": {
+        "name": "Ingezet personeel"
+      },
+      "response": {
+        "name": "Opkomst"
+      },
+      "current_user": {
+        "name": "Gebruiker"
+      },
+      "my_response": {
+        "name": "Mijn opkomst"
+      },
+      "uitrukbericht": {
+        "name": "Uitrukbericht"
+      },
+      "uitrukken_maand": {
+        "name": "Uitrukken deze maand"
+      },
+      "uitrukken_vorige_maand": {
+        "name": "Uitrukken vorige maand"
+      },
+      "uitrukken_jaar": {
+        "name": "Uitrukken dit jaar"
+      },
+      "uitrukken_totaal": {
+        "name": "Uitrukken totaal"
+      },
+      "uitrukken_niet_ingedeeld": {
+        "name": "Opgekomen, niet ingedeeld"
+      },
+      "response_rate_year": {
+        "name": "Opkomstpercentage dit jaar"
+      },
+      "last_turnout": {
+        "name": "Laatste uitruk"
+      }
     },
     "binary_sensor": {
-      "api_online": { "name": "API beschikbaar" },
-      "crew_complete": { "name": "Bezetting compleet" }
+      "api_online": {
+        "name": "API beschikbaar"
+      },
+      "crew_complete": {
+        "name": "Bezetting compleet"
+      }
     },
     "button": {
-      "refresh_incident": { "name": "Incident verversen" },
-      "resync_statistics": { "name": "Statistieken opnieuw synchroniseren" }
+      "refresh_incident": {
+        "name": "Incident verversen"
+      },
+      "resync_statistics": {
+        "name": "Statistieken opnieuw synchroniseren"
+      }
     },
     "event": {
       "new_incident": {
@@ -114,7 +156,9 @@
       }
     },
     "geo_location": {
-      "incident_location": { "name": "Locatie laatste incident" }
+      "incident_location": {
+        "name": "Locatie laatste incident"
+      }
     }
   },
   "issues": {
@@ -161,6 +205,14 @@
           "name": "Configuratie",
           "description": "Welke Brandweerrooster-configuratie (optioneel; standaard alle)."
         }
+      }
+    }
+  },
+  "selector": {
+    "turnout_mode": {
+      "options": {
+        "response": "Opkomst bevestigd in de app (manschappen)",
+        "duty": "Piketdienst: elk alarm waarvoor ik dienst had (OvD/piket)"
       }
     }
   }

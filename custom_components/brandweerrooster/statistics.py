@@ -5,16 +5,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, STATISTICS_SCHEMA
+from .const import DOMAIN, STATISTICS_SCHEMA, TURNOUT_MODE_DUTY, TURNOUT_MODE_RESPONSE
 from .incident import (
     category,
     classification,
     format_priority,
     incident_body,
+    response_is_negative,
     response_is_positive,
     response_status,
     split_p2000,
@@ -42,6 +43,14 @@ class PersonalIncidentStatistics:
         self.events: dict[str, dict[str, Any]] = {}
         self.initialized = False
         self.history_page = 1
+        self.mode = TURNOUT_MODE_RESPONSE
+
+    @callback
+    def set_mode(self, mode: str) -> None:
+        """Set how turnouts are counted; a change re-syncs the history."""
+        if mode != self.mode:
+            self.mode = mode
+            self.reset_history()
 
     async def async_load(self) -> None:
         data = await self._store.async_load()
@@ -52,6 +61,7 @@ class PersonalIncidentStatistics:
         if isinstance(events, dict):
             self.events = {str(k): v for k, v in events.items() if isinstance(v, dict)}
         self.initialized = bool(data.get("history_complete"))
+        self.mode = str(data.get("mode") or TURNOUT_MODE_RESPONSE)
         try:
             self.history_page = max(1, int(data.get("history_page", 1)))
         except (TypeError, ValueError):
@@ -71,6 +81,7 @@ class PersonalIncidentStatistics:
         await self._store.async_save(
             {
                 "schema": STATISTICS_SCHEMA,
+                "mode": self.mode,
                 "history_complete": self.initialized,
                 "history_page": self.history_page,
                 "events": self.events,
@@ -104,7 +115,17 @@ class PersonalIncidentStatistics:
         if not response:
             return False
 
-        if response_is_positive(response):
+        if self.mode == TURNOUT_MODE_DUTY:
+            # Standby duties (OvD, piket) don't confirm their turnout in the
+            # app: every alarm received while on duty counts, unless declined.
+            if _turned_out_on_duty(response):
+                functions = user_functions(incident, user, person_name, skill_map or {})
+                assigned_functions = functions or _response_functions(response, skill_map or {})
+                event_type = TYPE_ASSIGNED
+            else:
+                assigned_functions = None
+                event_type = TYPE_NO_TURNOUT
+        elif response_is_positive(response):
             assigned_functions = user_functions(incident, user, person_name, skill_map or {})
             event_type = TYPE_ASSIGNED if assigned_functions is not None else TYPE_NOT_ASSIGNED
         else:
@@ -117,6 +138,7 @@ class PersonalIncidentStatistics:
             "timestamp": incident_timestamp(incident),
             "type": event_type,
             "response_status": response_status(response),
+            "on_duty": response.get("on_duty"),
             "response_id": response.get("id"),
             "functies": assigned_functions or [],
             "classificatie": classification(melding, str(incident.get("type") or "")),
@@ -276,6 +298,28 @@ def user_functions(
             if name not in functions:
                 functions.append(name)
     return functions if found else None
+
+
+def _turned_out_on_duty(response: dict[str, Any]) -> bool:
+    """Standby mode: alarmed while on duty and not declined."""
+    if response_is_negative(response):
+        return False
+    on_duty = response.get("on_duty")
+    if on_duty is None:
+        on_duty = response.get("available_at_incident_creation")
+    return on_duty is not False
+
+
+def _response_functions(response: dict[str, Any], skill_map: dict[int, str]) -> list[str]:
+    functions: list[str] = []
+    for skill_id in response.get("assigned_skill_ids") or []:
+        try:
+            name = skill_map.get(int(skill_id), f"Skill {skill_id}")
+        except (TypeError, ValueError):
+            continue
+        if name not in functions:
+            functions.append(name)
+    return functions
 
 
 def incident_timestamp(incident: dict[str, Any]) -> str:

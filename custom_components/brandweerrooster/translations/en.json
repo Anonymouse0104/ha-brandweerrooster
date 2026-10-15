@@ -18,11 +18,13 @@
           "monitored_group_ids": "Additional groups",
           "monitored_task_ids": "Additional tasks",
           "incident_entity": "FireServiceRota incident sensor",
-          "crew_min_size": "Minimum crew size (people)"
+          "crew_min_size": "Minimum crew size (people)",
+          "turnout_mode": "How is a turnout counted?"
         },
         "data_description": {
           "incident_entity": "Usually sensor.incidents from the FireServiceRota integration.",
-          "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4."
+          "crew_min_size": "For example 6 for a fire engine (1 commander, 1 driver, 4 firefighters) or 4 for a TS-4.",
+          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics."
         }
       },
       "reauth_confirm": {
@@ -59,11 +61,13 @@
           "crew_min_size": "Minimum crew size (people)",
           "facebook_template": "Dispatch message template",
           "vehicle_names": "Vehicle names (P2000 number = name, one per line)",
-          "install_blueprints": "Install automation blueprints"
+          "install_blueprints": "Install automation blueprints",
+          "turnout_mode": "How is a turnout counted?"
         },
         "data_description": {
           "vehicle_names": "For example: 235331 = TS Echt. Lines starting with # are ignored.",
-          "install_blueprints": "Puts the bundled blueprints (notification, night alarm, dispatch message) under Automations → Blueprints."
+          "install_blueprints": "Puts the bundled blueprints (notification, night alarm, dispatch message) under Automations → Blueprints.",
+          "turnout_mode": "Choose 'Standby duty' if you are an OvD or on standby and don't confirm your turnout in the app. Changing this rebuilds the statistics."
         }
       }
     },
@@ -75,29 +79,67 @@
   },
   "entity": {
     "sensor": {
-      "latest_incident": { "name": "Latest incident" },
-      "last_alarm": { "name": "Last alarm" },
-      "incident_distance": { "name": "Distance to incident" },
-      "crew": { "name": "Assigned personnel" },
-      "response": { "name": "Responses" },
-      "current_user": { "name": "User" },
-      "my_response": { "name": "My response" },
-      "uitrukbericht": { "name": "Dispatch message" },
-      "uitrukken_maand": { "name": "Turnouts this month" },
-      "uitrukken_vorige_maand": { "name": "Turnouts last month" },
-      "uitrukken_jaar": { "name": "Turnouts this year" },
-      "uitrukken_totaal": { "name": "Turnouts total" },
-      "uitrukken_niet_ingedeeld": { "name": "Responded, not assigned" },
-      "response_rate_year": { "name": "Response rate this year" },
-      "last_turnout": { "name": "Last turnout" }
+      "latest_incident": {
+        "name": "Latest incident"
+      },
+      "last_alarm": {
+        "name": "Last alarm"
+      },
+      "incident_distance": {
+        "name": "Distance to incident"
+      },
+      "crew": {
+        "name": "Assigned personnel"
+      },
+      "response": {
+        "name": "Responses"
+      },
+      "current_user": {
+        "name": "User"
+      },
+      "my_response": {
+        "name": "My response"
+      },
+      "uitrukbericht": {
+        "name": "Dispatch message"
+      },
+      "uitrukken_maand": {
+        "name": "Turnouts this month"
+      },
+      "uitrukken_vorige_maand": {
+        "name": "Turnouts last month"
+      },
+      "uitrukken_jaar": {
+        "name": "Turnouts this year"
+      },
+      "uitrukken_totaal": {
+        "name": "Turnouts total"
+      },
+      "uitrukken_niet_ingedeeld": {
+        "name": "Responded, not assigned"
+      },
+      "response_rate_year": {
+        "name": "Response rate this year"
+      },
+      "last_turnout": {
+        "name": "Last turnout"
+      }
     },
     "binary_sensor": {
-      "api_online": { "name": "API available" },
-      "crew_complete": { "name": "Crew complete" }
+      "api_online": {
+        "name": "API available"
+      },
+      "crew_complete": {
+        "name": "Crew complete"
+      }
     },
     "button": {
-      "refresh_incident": { "name": "Refresh incident" },
-      "resync_statistics": { "name": "Resynchronise statistics" }
+      "refresh_incident": {
+        "name": "Refresh incident"
+      },
+      "resync_statistics": {
+        "name": "Resynchronise statistics"
+      }
     },
     "event": {
       "new_incident": {
@@ -114,7 +156,9 @@
       }
     },
     "geo_location": {
-      "incident_location": { "name": "Latest incident location" }
+      "incident_location": {
+        "name": "Latest incident location"
+      }
     }
   },
   "issues": {
@@ -161,6 +205,14 @@
           "name": "Configuration",
           "description": "Which Brandweerrooster configuration (optional; defaults to all)."
         }
+      }
+    }
+  },
+  "selector": {
+    "turnout_mode": {
+      "options": {
+        "response": "Turnout confirmed in the app (crew)",
+        "duty": "Standby duty: every alarm while on duty (OvD/standby)"
       }
     }
   }

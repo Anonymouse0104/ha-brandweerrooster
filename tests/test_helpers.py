@@ -156,6 +156,35 @@ async def test_statistics_counts_and_timezone(hass) -> None:
     assert stats.counts(may)["previous_month"] == 1
 
 
+async def test_duty_mode_counts_alarms_while_on_duty(hass) -> None:
+    stats = PersonalIncidentStatistics(hass, "test")
+    stats.initialized = True
+    stats.set_mode("duty")
+    assert not stats.initialized  # switching mode re-syncs history
+
+    def ovd_incident(incident_id: int, on_duty: bool | None, status: str = "pending") -> dict:
+        incident = make_incident(incident_id, assigned=False)
+        incident["incident_responses"] = [
+            {"id": 1, "user_id": 7, "status": status, "reported_status": "unknown", "on_duty": on_duty, "assigned_skill_ids": [1]}
+        ]
+        return incident
+
+    stats.record_incident(ovd_incident(1, True), USER, "", SKILLS)
+    stats.record_incident(ovd_incident(2, False), USER, "", SKILLS)
+    stats.record_incident(ovd_incident(3, None), USER, "", SKILLS)
+    stats.record_incident(ovd_incident(4, True, "rejected"), USER, "", SKILLS)
+    assert stats.events["1"]["type"] == TYPE_ASSIGNED
+    assert stats.events["1"]["functies"] == ["Bevelvoerder"]
+    assert stats.events["2"]["type"] == TYPE_NO_TURNOUT
+    assert stats.events["3"]["type"] == TYPE_ASSIGNED
+    assert stats.events["4"]["type"] == TYPE_NO_TURNOUT
+
+    # The same data in the default mode: nothing was confirmed in the app.
+    stats.set_mode("response")
+    stats.record_incident(ovd_incident(1, True), USER, "", SKILLS)
+    assert stats.events["1"]["type"] == TYPE_NO_TURNOUT
+
+
 async def test_fallback_incident_never_deletes(hass) -> None:
     stats = PersonalIncidentStatistics(hass, "test")
     stats.record_incident(make_incident(1), USER, "Jan Jansen", SKILLS)

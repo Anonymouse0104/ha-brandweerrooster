@@ -51,10 +51,13 @@ from .const import (
     CONF_MONITORED_TASK_IDS,
     CONF_PERSON_NAME,
     CONF_STATION_GROUP_ID,
+    CONF_TURNOUT_MODE,
     CONF_VEHICLE_NAMES,
     DEFAULT_CREW_MIN_SIZE,
     DEFAULT_INCIDENT_ENTITY,
     DOMAIN,
+    TURNOUT_MODE_RESPONSE,
+    TURNOUT_MODES,
 )
 from .helpers import get_setting
 from .vehicles import DEFAULT_VEHICLE_TEXT, invalid_vehicle_lines
@@ -65,6 +68,9 @@ PASSWORD_SELECTOR = TextSelector(TextSelectorConfig(type=TextSelectorType.PASSWO
 MULTILINE_SELECTOR = TextSelector(TextSelectorConfig(multiline=True))
 CREW_SIZE_SELECTOR = NumberSelector(NumberSelectorConfig(min=1, max=20, step=1, mode=NumberSelectorMode.BOX))
 INCIDENT_ENTITY_SELECTOR = EntitySelector(EntitySelectorConfig(domain="sensor"))
+TURNOUT_MODE_SELECTOR = SelectSelector(
+    SelectSelectorConfig(options=TURNOUT_MODES, mode=SelectSelectorMode.LIST, translation_key=CONF_TURNOUT_MODE)
+)
 
 
 def _label(item: dict[str, Any]) -> str:
@@ -112,6 +118,9 @@ def _scope_schema(
             CONF_INCIDENT_ENTITY, default=defaults.get(CONF_INCIDENT_ENTITY, DEFAULT_INCIDENT_ENTITY)
         ): INCIDENT_ENTITY_SELECTOR,
         vol.Required(
+            CONF_TURNOUT_MODE, default=defaults.get(CONF_TURNOUT_MODE, TURNOUT_MODE_RESPONSE)
+        ): TURNOUT_MODE_SELECTOR,
+        vol.Required(
             CONF_CREW_MIN_SIZE, default=defaults.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)
         ): CREW_SIZE_SELECTOR,
     }
@@ -127,6 +136,7 @@ def _scope_values(user_input: dict[str, Any]) -> dict[str, Any]:
         CONF_MONITORED_TASK_IDS: sorted({int(x) for x in user_input.get(CONF_MONITORED_TASK_IDS, [])}),
         CONF_INCIDENT_ENTITY: user_input.get(CONF_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY,
         CONF_CREW_MIN_SIZE: int(user_input.get(CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE)),
+        CONF_TURNOUT_MODE: user_input.get(CONF_TURNOUT_MODE) or TURNOUT_MODE_RESPONSE,
     }
 
 
@@ -301,6 +311,7 @@ class BrandweerroosterOptionsFlow(OptionsFlowWithReload):
                 CONF_MONITORED_TASK_IDS,
                 CONF_INCIDENT_ENTITY,
                 CONF_CREW_MIN_SIZE,
+                CONF_TURNOUT_MODE,
             )
             if get_setting(entry, key) is not None
         }

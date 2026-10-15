@@ -33,6 +33,7 @@ from .const import (
     CONF_MONITORED_TASK_IDS,
     CONF_PERSON_NAME,
     CONF_STATION_GROUP_ID,
+    CONF_TURNOUT_MODE,
     CONF_VEHICLE_NAMES,
     DEFAULT_CREW_MIN_SIZE,
     DEFAULT_INCIDENT_ENTITY,
@@ -44,6 +45,7 @@ from .const import (
     HISTORY_PAGE_SIZE,
     INCIDENT_ENTITY_GRACE_PERIOD,
     RATE_LIMIT_DEFAULT_RETRY,
+    TURNOUT_MODE_RESPONSE,
 )
 from .helpers import get_setting
 from .incident import incident_groups, incident_tasks, int_set, message_values
@@ -92,6 +94,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.monitored_task_ids = int_set(get_setting(entry, CONF_MONITORED_TASK_IDS, []))
         self.person_name = str(get_setting(entry, CONF_PERSON_NAME, "") or "").strip()
         self.incident_entity = str(get_setting(entry, CONF_INCIDENT_ENTITY, DEFAULT_INCIDENT_ENTITY) or DEFAULT_INCIDENT_ENTITY)
+        self.turnout_mode = str(get_setting(entry, CONF_TURNOUT_MODE, TURNOUT_MODE_RESPONSE) or TURNOUT_MODE_RESPONSE)
         self.crew_min_size = int(get_setting(entry, CONF_CREW_MIN_SIZE, DEFAULT_CREW_MIN_SIZE) or DEFAULT_CREW_MIN_SIZE)
         self.message_template = str(
             get_setting(entry, CONF_FACEBOOK_TEMPLATE, facebook_template.DEFAULT_TEMPLATE)
@@ -125,6 +128,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_setup(self) -> None:
         """Load persistent state, user data and labels once during setup."""
         await self.statistics.async_load()
+        self.statistics.set_mode(self.turnout_mode)
         try:
             self._current_user = await self.api.async_get_current_user()
         except BrandweerRoosterAuthenticationError as err:
@@ -493,6 +497,13 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
                 report["zonder_jouw_reactie"] += 1
                 continue
             report["met_jouw_reactie"] += 1
+            response = find_user_response(detail, self._current_user, self.person_name) or {}
+            key = (
+                f"{response.get('status') or '-'} / {response.get('reported_status') or '-'}"
+                f" / dienst={response.get('on_duty')}"
+            )
+            statuses: dict[str, int] = report["jouw_statussen"]
+            statuses[key] = statuses.get(key, 0) + 1
             self.statistics.record_incident(detail, self._current_user, self.person_name, self.skill_map)
 
     async def _async_daily_sync(self, _now: datetime) -> None:
@@ -634,6 +645,8 @@ def _new_report(page: int) -> dict[str, Any]:
         "relevant": 0,
         "met_jouw_reactie": 0,
         "zonder_jouw_reactie": 0,
+        # "status / reported_status" of your responses, to explain how they are counted.
+        "jouw_statussen": {},
         "vastgelegd_totaal": 0,
         "voorbeelden_niet_relevant": [],
     }

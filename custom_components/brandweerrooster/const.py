@@ -18,6 +18,15 @@ CONF_FACEBOOK_TEMPLATE = "facebook_template"
 CONF_VEHICLE_NAMES = "vehicle_names"
 CONF_INSTALL_BLUEPRINTS = "install_blueprints"
 
+CONF_TURNOUT_MODE = "turnout_mode"
+# How a turnout is determined for the personal statistics:
+# - response: you confirmed your turnout in the app (crew members)
+# - duty: every alarm you received while on duty (OvD and other standby duties,
+#   who don't confirm their turnout in the app)
+TURNOUT_MODE_RESPONSE = "response"
+TURNOUT_MODE_DUTY = "duty"
+TURNOUT_MODES = [TURNOUT_MODE_RESPONSE, TURNOUT_MODE_DUTY]
+
 DEFAULT_INCIDENT_ENTITY = "sensor.incidents"
 DEFAULT_CREW_MIN_SIZE = 6
 

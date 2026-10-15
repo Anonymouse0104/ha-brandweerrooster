@@ -211,6 +211,7 @@ async def test_config_and_options_flow(hass: HomeAssistant, mock_api) -> None:
         "monitored_task_ids": [],
         "incident_entity": "sensor.fsr_incidents",
         "crew_min_size": 4,
+        "turnout_mode": "duty",
         "install_blueprints": False,
     }
     result = await hass.config_entries.options.async_configure(
@@ -227,6 +228,8 @@ async def test_config_and_options_flow(hass: HomeAssistant, mock_api) -> None:
     coordinator = entry.runtime_data.coordinator
     assert coordinator.monitored_group_ids == {100, 300}
     assert coordinator.crew_min_size == 4
+    assert coordinator.turnout_mode == "duty"
+    assert coordinator.statistics.mode == "duty"
     assert coordinator.vehicle_names == {"235331": "Tankautospuit"}
 
 
@@ -260,6 +263,9 @@ async def test_services_and_buttons(hass: HomeAssistant, mock_api, config_entry)
     assert report["incidenten"] == 2
     assert report["relevant"] == 1
     assert report["met_jouw_reactie"] == 1
+    assert report["jouw_statussen"] == {"acknowledged / unknown / dienst=None": 1}
+    diagnostics = await async_get_config_entry_diagnostics(hass, config_entry)
+    assert diagnostics["statistics"]["recorded_by_status"]["acknowledged"] >= 1
     assert report["voorbeelden_niet_relevant"] == [{"incident_id": 9, "groups": [300], "task_ids": [11]}]
     total = hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal"))
     assert total.attributes["historie_samenvatting"]["status"] == "klaar"

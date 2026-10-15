@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import copy
 from datetime import datetime
 from typing import Any
 
@@ -297,7 +298,9 @@ class StatisticSensor(BrandweerSensor):
                 "per_functie": stats.get("functions_total", {}),
                 "historie_compleet": self.coordinator.statistics.initialized,
                 "synchronisatie_bezig": self.coordinator.history_sync_running,
-                "historie_samenvatting": self.coordinator.history_report,
+                # A copy, so Home Assistant sees the change while the report
+                # is updated in place during the sync.
+                "historie_samenvatting": copy.deepcopy(self.coordinator.history_report),
             }
         return None
 

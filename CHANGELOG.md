@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.3
+
+### New
+- **How is a turnout counted?** (setup and Configure):
+  - *Turnout confirmed in the app* (default, crew members).
+  - *Standby duty* for OvD and other standby duties that don't confirm their turnout in the app: every alarm received while on duty counts as a turnout, unless declined. The function comes from the assignment or the skills on your response.
+  - Changing the setting rebuilds the statistics automatically.
+- `historie_samenvatting` lists the status combinations of your responses (`jouw_statussen`). Download diagnostics shows how recorded incidents were counted.
+
+### Fixes
+- `historie_samenvatting` now refreshes while the sync runs (it stayed on the first value).
+
 ## 1.4.2
 
 ### Fixes

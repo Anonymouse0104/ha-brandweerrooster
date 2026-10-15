@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from typing import Any
 
 from homeassistant.components.diagnostics import async_redact_data
@@ -66,6 +67,10 @@ async def async_get_config_entry_diagnostics(
             "monitored_task_ids": sorted(coordinator.monitored_task_ids),
             "current_user_id_known": coordinator.current_user.get("id") is not None,
             "recorded_incidents": len(coordinator.statistics.events),
+            "recorded_by_type": dict(Counter(str(e.get("type")) for e in coordinator.statistics.events.values())),
+            "recorded_by_status": dict(
+                Counter(str(e.get("response_status")) for e in coordinator.statistics.events.values())
+            ),
             "counts": stats,
         },
     }
