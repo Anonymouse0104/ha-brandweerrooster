@@ -65,6 +65,19 @@ async def test_setup_and_new_incident(hass: HomeAssistant, mock_api, config_entr
     assert hass.states.get(latest).state == "Geen incident"
     assert hass.states.get(_entity_id(hass, "binary_sensor", "api_online")).state == "on"
 
+    # Before the first alarm nothing is "unknown" or "unavailable".
+    platforms = ("sensor", "binary_sensor", "number", "button", "switch")
+    for state in hass.states.async_all(platforms):
+        if state.entity_id.startswith(platforms) and "button." not in state.entity_id:
+            assert state.state not in ("unknown", "unavailable"), state
+    assert hass.states.get(_entity_id(hass, "sensor", "last_alarm")).state == "Nog geen alarmering"
+    assert hass.states.get(_entity_id(hass, "sensor", "last_turnout")).state == "Nog geen uitruk"
+    assert hass.states.get(_entity_id(hass, "sensor", "incident_distance")).state == "Geen incident"
+    assert hass.states.get(_entity_id(hass, "sensor", "response_rate_year")).state == "0.0"
+    crew_complete = hass.states.get(_entity_id(hass, "binary_sensor", "crew_complete"))
+    assert crew_complete.state == "off"
+    assert crew_complete.attributes["status"] == "Geen incident"
+
     hass.states.async_set("sensor.incidents", "P 1 BR woning", {"id": 3010161})
     await hass.async_block_till_done()
 
@@ -86,8 +99,15 @@ async def test_setup_and_new_incident(hass: HomeAssistant, mock_api, config_entr
     assert hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal")).state == "1"
     assert hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal_alle")).state == "1"
     assert hass.states.get(_entity_id(hass, "sensor", "my_response")).state == "acknowledged"
-    geo = hass.states.get(_entity_id(hass, "geo_location", "incident_location"))
-    assert geo.attributes["latitude"] == 51.1
+    assert state.attributes["latitude"] == 51.1
+    distance = hass.states.get(_entity_id(hass, "sensor", "incident_distance"))
+    assert distance.state.endswith(" km")
+    assert isinstance(distance.attributes["km"], float)
+    last_alarm = hass.states.get(_entity_id(hass, "sensor", "last_alarm"))
+    assert last_alarm.state == dt_util.as_local(dt_util.parse_datetime("2026-03-31T22:30:00Z")).strftime("%d-%m-%Y %H:%M")
+    assert last_alarm.attributes["tijdstip"].startswith("20")
+    assert hass.states.get(_entity_id(hass, "sensor", "last_turnout")).state != "Nog geen uitruk"
+    assert hass.states.get(_entity_id(hass, "binary_sensor", "crew_complete")).attributes["status"] == "Niet compleet"
     assert "email" not in hass.states.get(_entity_id(hass, "sensor", "current_user")).attributes
 
     # Same incident again does not refetch.
@@ -225,6 +245,12 @@ async def test_migration_from_single_entry(hass: HomeAssistant, mock_api, legacy
         "binary_sensor", DOMAIN, f"{legacy_entry.entry_id}_api_online",
         config_entry=legacy_entry, device_id=device.id, suggested_object_id="echt_api_beschikbaar",
     )
+    retired = [
+        ent_reg.async_get_or_create(
+            "geo_location", DOMAIN, f"{legacy_entry.entry_id}_incident_location", config_entry=legacy_entry
+        ),
+        ent_reg.async_get_or_create("sensor", DOMAIN, f"{legacy_entry.entry_id}_api_diagnostic", config_entry=legacy_entry),
+    ]
 
     hass.states.async_set("sensor.incidents", "P 1 BR woning", {"id": 3010161})
     assert await hass.config_entries.async_setup(legacy_entry.entry_id)
@@ -247,6 +273,8 @@ async def test_migration_from_single_entry(hass: HomeAssistant, mock_api, legacy
     assert ent_reg.async_get(old_api.entity_id).config_subentry_id is None
     assert hass.states.get(old_latest.entity_id).state == "Incident 3010161"
     assert hass.states.get(old_api.entity_id).state == "on"
+    # Entities of earlier versions that no longer exist are cleaned up.
+    assert all(ent_reg.async_get(entity.entity_id) is None for entity in retired)
     assert _profile(legacy_entry).unique_prefix == legacy_entry.entry_id
     assert await hass.config_entries.async_unload(legacy_entry.entry_id)
 

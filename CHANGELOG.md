@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.5.2
+
+### No more "unknown" before the first alarm
+- **Laatste alarmering** and **Laatste uitruk** now show text: `16-10-2026 14:32`, or *Nog geen alarmering* / *Nog geen uitruk*. The exact time is in the attribute `tijdstip`.
+- **Afstand tot incident** now shows text: `4,2 km`, *Geen incident* or *Geen locatie bekend*. The number is in the attribute `km`.
+- **Bezetting compleet** is off while there is no incident. A new attribute `status` shows *Compleet*, *Niet compleet* or *Geen incident*.
+- **Opkomstpercentage dit jaar** shows 0 % until the first alarm.
+- The **Locatie laatste incident** map entity was removed. It was always unavailable without coordinates. *Laatste incident* has `latitude`/`longitude`, so a map card can show that sensor instead (see `examples/map_latest_incident.yaml`). The old entity, and a leftover *API diagnose laatste incident* entity, are removed automatically.
+
+Automations that used *Laatste alarmering*, *Laatste uitruk* or *Afstand tot incident* as a time or number should now use their `tijdstip` or `km` attribute.
+
 ## 1.5.1
 
 ### Standby duty: the Piketdienst switch

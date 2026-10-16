@@ -1,9 +1,9 @@
-# Optional dashboard card: shows the latest incident and your home on a map.
-# The incident appears automatically on the built-in Map panel as well.
+# Optional dashboard card: the latest incident of a function and your home on a map.
+# "Laatste incident" has latitude/longitude attributes whenever the source
+# provides coordinates. Replace the entity ID with your own.
 
 type: map
-geo_location_sources:
-  - brandweerrooster
 entities:
+  - entity: sensor.ovd_west_laatste_incident
   - zone.home
 hours_to_show: 0

@@ -6,10 +6,11 @@ import copy
 from datetime import datetime
 from typing import Any
 
-from homeassistant.components.sensor import SensorDeviceClass, SensorEntity, SensorStateClass
-from homeassistant.const import PERCENTAGE, EntityCategory, UnitOfLength
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.const import PERCENTAGE, EntityCategory
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.util import dt as dt_util
 
 from . import BrandweerRoosterConfigEntry
 from .coordinator import BrandweerRoosterCoordinator
@@ -33,6 +34,9 @@ from .profile import Profile
 
 # Personnel names, raw responses and similar lists are useful on dashboards
 # but should not end up in the recorder database.
+NO_INCIDENT = "Geen incident"
+NO_ALARM_YET = "Nog geen alarmering"
+
 _PERSONNEL_ATTRIBUTES = frozenset(
     {"personeel", "personeel_per_functie", "per_functie", "opkomstreacties", "reacties", "bericht"}
 )
@@ -135,30 +139,49 @@ class LatestIncidentSensor(ProfileSensor):
         }
 
 
+def _format_moment(moment: datetime | None, empty: str) -> str:
+    """A readable local time, or a text when there is none yet (never "unknown")."""
+    return dt_util.as_local(moment).strftime("%d-%m-%Y %H:%M") if moment else empty
+
+
 class LastAlarmSensor(ProfileSensor):
+    """When the latest incident was alarmed, as text; the exact time is the `tijdstip` attribute."""
+
     _attr_icon = "mdi:alarm-light"
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
         super().__init__(coordinator, profile, "last_alarm")
 
     @property
-    def native_value(self) -> datetime | None:
-        return alarm_datetime(self.incident)
+    def native_value(self) -> str:
+        return _format_moment(alarm_datetime(self.incident), NO_ALARM_YET)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        moment = alarm_datetime(self.incident)
+        return {"tijdstip": moment.isoformat() if moment else None}
 
 
 class IncidentDistanceSensor(ProfileSensor):
+    """Distance to the incident as text; the number is the `km` attribute."""
+
     _attr_icon = "mdi:map-marker-distance"
-    _attr_device_class = SensorDeviceClass.DISTANCE
-    _attr_native_unit_of_measurement = UnitOfLength.KILOMETERS
-    _attr_suggested_display_precision = 1
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
         super().__init__(coordinator, profile, "incident_distance")
 
     @property
-    def native_value(self) -> float | None:
-        return self.incident_distance_km()
+    def native_value(self) -> str:
+        if not self.incident:
+            return NO_INCIDENT
+        distance = self.incident_distance_km()
+        if distance is None:
+            return "Geen locatie bekend"
+        return f"{distance:.1f} km".replace(".", ",")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        return {"km": self.incident_distance_km()}
 
 
 class CrewSensor(ProfileSensor):
@@ -305,8 +328,9 @@ class ResponseRateSensor(ProfileSensor):
         super().__init__(coordinator, profile, "response_rate_year")
 
     @property
-    def native_value(self) -> float | None:
-        return self.statistics.get("response_rate_year")
+    def native_value(self) -> float:
+        # 0 % (not "unknown") until the first alarm of the year.
+        return self.statistics.get("response_rate_year") or 0.0
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
@@ -317,15 +341,21 @@ class ResponseRateSensor(ProfileSensor):
 
 
 class LastTurnoutSensor(ProfileSensor):
+    """Your most recent turnout as text; the exact time is the `tijdstip` attribute."""
+
     _attr_icon = "mdi:fire-truck"
-    _attr_device_class = SensorDeviceClass.TIMESTAMP
 
     def __init__(self, coordinator: BrandweerRoosterCoordinator, profile: Profile) -> None:
         super().__init__(coordinator, profile, "last_turnout")
 
     @property
-    def native_value(self) -> datetime | None:
-        return self.statistics.get("last_turnout")
+    def native_value(self) -> str:
+        return _format_moment(self.statistics.get("last_turnout"), "Nog geen uitruk")
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        moment = self.statistics.get("last_turnout")
+        return {"tijdstip": moment.isoformat() if moment else None}
 
 
 class CurrentUserSensor(AccountEntity, SensorEntity):

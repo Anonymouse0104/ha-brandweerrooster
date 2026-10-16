@@ -64,15 +64,19 @@ class CrewCompleteSensor(ProfileEntity, BinarySensorEntity):
         return crew_status(crew, self.profile.crew_min_size)
 
     @property
-    def is_on(self) -> bool | None:
-        if not self.incident:
-            return None
-        return self._status()["compleet"]
+    def is_on(self) -> bool:
+        # Off (not "unknown") while there is no incident yet.
+        return bool(self.incident) and self._status()["compleet"]
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         status = self._status()
+        if not self.incident:
+            label = "Geen incident"
+        else:
+            label = "Compleet" if status["compleet"] else "Niet compleet"
         return {
+            "status": label,
             "aantal": status["aantal"],
             "minimaal": status["minimaal"],
             "bevelvoerder": status["bevelvoerder"],

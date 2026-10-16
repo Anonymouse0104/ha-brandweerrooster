@@ -158,11 +158,6 @@
         }
       }
     },
-    "geo_location": {
-      "incident_location": {
-        "name": "Locatie laatste incident"
-      }
-    },
     "switch": {
       "standby_duty": {
         "name": "Piketdienst"

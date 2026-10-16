@@ -11,7 +11,7 @@ Everything is configured from the Home Assistant UI — you never have to create
 - **One account, several functions.** Create a function for every role you have — for example *OvD West* and *TS Echt* — each with its own groups/tasks, its own way of counting turnouts and its own device with sensors and an event. Automate per function.
 - Shows the latest incident, the assigned crew per role, whether the crew is complete, the responses and your own response.
 - Names the alerted vehicles (23-5331 → *TST Echt*) using [Brandbase](https://brandbase.hetbrandweerforum.nl/), with optional own names.
-- Puts the incident on the Home Assistant map and calculates the distance from your home.
+- Calculates the distance from your home; *Laatste incident* has `latitude`/`longitude`, so a map card can show it.
 - Fires an event for every new incident (`p1_incident`, `p2_incident`, `new_incident`).
 - Generates a copy-ready Facebook dispatch message from a template you edit in the UI.
 - Keeps personal turnout statistics per function: this month, last month, this year, total, response rate, per role, per category and per time of day — plus a combined total over all functions.
@@ -78,18 +78,17 @@ Entity names below are the Dutch names.
 | Entity | Description |
 |---|---|
 | **Laatste incident** (sensor) | `Incident <id>`; attributes: message, classification, category, street, place, location, address, priority, vehicles, unknown vehicle numbers, coordinates, distance, crew, source (API or FireServiceRota fallback) |
-| **Laatste alarmering** (timestamp) | When the latest incident was alarmed |
-| **Afstand tot incident** (km) | Distance from your Home Assistant home location |
-| **Locatie laatste incident** (geo_location) | Shows the incident on the map (only when coordinates are known) |
+| **Laatste alarmering** | When the latest incident was alarmed (`16-10-2026 14:32`, or *Nog geen alarmering*); exact time in attribute `tijdstip` |
+| **Afstand tot incident** | Distance from your Home Assistant home location (`4,2 km`, *Geen incident* or *Geen locatie bekend*); number in attribute `km` |
 | **Ingezet personeel** | Number of assigned people; attributes per role and the crew list |
-| **Bezetting compleet** (binary sensor) | On when there is a commander, a driver and at least the minimum crew size; attributes say what is missing |
+| **Bezetting compleet** (binary sensor) | On when there is a commander, a driver and at least the minimum crew size; off otherwise and while there is no incident. Attribute `status` (*Compleet*, *Niet compleet*, *Geen incident*) and what is missing |
 | **Opkomst** | Number of responses; attributes `opgekomen`, `afgewezen`, `overig` |
 | **Mijn opkomst** | Your own response status for the latest incident |
 | **Uitrukbericht** | Attribute `bericht` contains the generated Facebook message |
 | **Uitrukken deze maand / vorige maand / dit jaar / totaal** | Your turnouts for this function (see *How is a turnout counted?*) |
 | **Opgekomen, niet ingedeeld** | App mode: you confirmed but were not assigned |
-| **Opkomstpercentage dit jaar** | Share of alarms this year where you turned out |
-| **Laatste uitruk** (timestamp) | Your most recent turnout |
+| **Opkomstpercentage dit jaar** | Share of alarms this year where you turned out (0 % until the first alarm) |
+| **Laatste uitruk** | Your most recent turnout (`16-10-2026 14:32`, or *Nog geen uitruk*); exact time in attribute `tijdstip` |
 | **Nieuw incident** (event) | Fires once per new incident of this function |
 | **Piketdienst** (switch, standby functions only) | On while you have duty; alarms only count while it is on. The on/off periods are stored, so history syncs use the same rule. Alarms from before you first used the switch are not counted |
 | **Correctie uitrukken totaal** (number) | Your own number added to *Uitrukken totaal*, e.g. turnouts from another system. Negative values are allowed |
@@ -106,6 +105,8 @@ Entity names below are the Dutch names.
 | **Statistieken opnieuw synchroniseren** (button) | Rebuilds the statistics from the full history |
 | **API beschikbaar** (diagnostic) | Whether the last Brandweerrooster API call succeeded; attributes show the last error |
 | **Gebruiker** (diagnostic) | Logged-in user (name and ID only) |
+
+No entity shows *unknown* or *unavailable* just because there hasn't been an alarm yet; the only exception is the *Nieuw incident* event, whose state is the time of the last event (Home Assistant shows *unknown* until the first one).
 
 ### Privacy
 

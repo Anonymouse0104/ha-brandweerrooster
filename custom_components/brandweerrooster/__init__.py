@@ -99,6 +99,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: BrandweerRoosterConfigEn
     except BrandweerRoosterApiError as err:
         raise ConfigEntryNotReady(f"Brandweerrooster is niet bereikbaar: {err}") from err
 
+    _remove_retired_entities(hass, entry)
     coordinator = BrandweerRoosterCoordinator(hass, entry, api)
     await coordinator.async_config_entry_first_refresh()
 
@@ -227,6 +228,19 @@ async def async_migrate_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
             )
     _LOGGER.info("Brandweerrooster: instellingen omgezet naar functieprofiel '%s'", title)
     return True
+
+
+def _remove_retired_entities(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Drop entities of earlier versions that no longer exist.
+
+    - geo_location "Locatie laatste incident" (1.3-1.5.1): always unavailable
+      without coordinates; "Laatste incident" carries latitude/longitude.
+    - sensor "API diagnose laatste incident" (until 1.3.9): replaced by diagnostics.
+    """
+    ent_reg = er.async_get(hass)
+    for reg_entry in er.async_entries_for_config_entry(ent_reg, entry.entry_id):
+        if reg_entry.domain == "geo_location" or reg_entry.unique_id.endswith("_api_diagnostic"):
+            ent_reg.async_remove(reg_entry.entity_id)
 
 
 async def _async_import_legacy_template(hass: HomeAssistant, entry: ConfigEntry) -> None:

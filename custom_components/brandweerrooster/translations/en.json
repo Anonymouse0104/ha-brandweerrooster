@@ -158,11 +158,6 @@
         }
       }
     },
-    "geo_location": {
-      "incident_location": {
-        "name": "Latest incident location"
-      }
-    },
     "switch": {
       "standby_duty": {
         "name": "Standby duty"
