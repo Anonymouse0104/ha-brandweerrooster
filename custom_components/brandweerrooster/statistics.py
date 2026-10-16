@@ -77,6 +77,29 @@ class PersonalIncidentStatistics:
         self.duty_periods: list[list[str | None]] = []
         # Own corrections: {"total": n, "year": n, "year_of": yyyy}.
         self.corrections: dict[str, int | None] = {}
+        # The latest incident of the function, so its sensors survive a restart.
+        self.latest_incident: dict[str, Any] | None = None
+
+    @callback
+    def set_latest_incident(self, incident: dict[str, Any] | None) -> bool:
+        """Remember the latest incident. Returns True when it changed.
+
+        A FireServiceRota fallback never replaces the API version of the same
+        incident.
+        """
+        current = self.latest_incident
+        if (
+            incident is not None
+            and incident.get("_fallback")
+            and current is not None
+            and current.get("id") == incident.get("id")
+            and not current.get("_fallback")
+        ):
+            return False
+        if incident == current:
+            return False
+        self.latest_incident = dict(incident) if incident is not None else None
+        return True
 
     @property
     def correction_total(self) -> int:
@@ -144,6 +167,8 @@ class PersonalIncidentStatistics:
         self.mode = str(data.get("mode") or TURNOUT_MODE_RESPONSE)
         corrections = data.get("corrections")
         self.corrections = dict(corrections) if isinstance(corrections, dict) else {}
+        latest = data.get("latest_incident")
+        self.latest_incident = latest if isinstance(latest, dict) and latest.get("id") is not None else None
         periods = data.get("duty_periods") or []
         self.duty_periods = [
             [str(p[0]), str(p[1]) if p[1] else None]
@@ -174,6 +199,7 @@ class PersonalIncidentStatistics:
                 "history_page": self.history_page,
                 "duty_periods": self.duty_periods,
                 "corrections": self.corrections,
+                "latest_incident": self.latest_incident,
                 "events": self.events,
             }
         )

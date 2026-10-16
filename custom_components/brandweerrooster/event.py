@@ -53,7 +53,10 @@ class BrandweerRoosterIncidentEvent(ProfileEntity, EventEntity):
         current_id = incident_id(incident)
         if current_id is not None and current_id != self._last_seen_incident_id:
             self._last_seen_incident_id = current_id
-            self._trigger_event(_event_type(incident), self._event_data(incident))
+            # Incidents shown again after a restart or filled in from the
+            # history are not new alarms.
+            if current_id not in self.profile.restored_ids:
+                self._trigger_event(_event_type(incident), self._event_data(incident))
         self.async_write_ha_state()
 
     def _event_data(self, incident: dict[str, Any] | None) -> dict[str, Any]:

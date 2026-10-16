@@ -48,7 +48,7 @@ from .const import (
     SUBENTRY_PROFILE,
     TURNOUT_MODE_DUTY,
 )
-from .incident import incident_body, incident_groups, incident_tasks, message_values
+from .incident import incident_body, incident_groups, incident_id, incident_tasks, message_values
 from .profile import Profile
 from .statistics import combined_counts, find_user_response
 from .vehicles import extract_vehicle_codes, parse_vehicle_names
@@ -70,6 +70,18 @@ def _incident_needs_enrichment(incident: dict[str, Any] | None) -> bool:
         return True
     assignments = incident.get("incident_skill_assignments") or []
     return not any(isinstance(item, dict) and item.get("user_id") is not None for item in assignments)
+
+
+FILL_LATEST_MAX_PAGES = 4
+
+
+def _newer(incident: dict[str, Any], other: dict[str, Any]) -> bool:
+    """Whether an incident is more recent than another (alarm time, then id)."""
+
+    def key(item: dict[str, Any]) -> tuple[str, int]:
+        return (str(item.get("created_at") or item.get("start_time") or ""), incident_id(item) or 0)
+
+    return key(incident) > key(other)
 
 
 def _has_scope_fields(incident: dict[str, Any]) -> bool:
@@ -126,6 +138,7 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self._startup_incident_task: asyncio.Task | None = None
         self._incident_enrichment_task: asyncio.Task | None = None
         self._incident_enrichment_id: int | None = None
+        self._fill_latest_task: asyncio.Task | None = None
         self._unsubs: list[CALLBACK_TYPE] = []
         self._history_retry_unsub: CALLBACK_TYPE | None = None
 
@@ -138,6 +151,12 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         for profile in self.profiles.values():
             await profile.statistics.async_load()
             profile.statistics.set_mode(profile.turnout_mode)
+            # Show the function's own latest incident again right away, even
+            # when FireServiceRota now shows an incident of another function.
+            if profile.statistics.latest_incident is not None:
+                profile.latest_incident = profile.statistics.latest_incident
+                if (restored_id := incident_id(profile.latest_incident)) is not None:
+                    profile.restored_ids.add(restored_id)
         if self.brandbase is not None:
             await self.brandbase.async_load()
         try:
@@ -186,6 +205,13 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             f"{DOMAIN}_startup_incident_check_{self.config_entry.entry_id}",
         )
 
+        if any(profile.latest_incident is None for profile in self.profiles.values()):
+            self._fill_latest_task = self.config_entry.async_create_background_task(
+                self.hass,
+                self._async_fill_latest_from_history(),
+                f"{DOMAIN}_fill_latest_{self.config_entry.entry_id}",
+            )
+
         if any(not profile.statistics.initialized for profile in self.profiles.values()):
             self.async_start_history_sync()
 
@@ -200,7 +226,12 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.api.status_listener = None
         if self.brandbase is not None:
             await self.brandbase.async_stop()
-        for task in (self._history_task, self._startup_incident_task, self._incident_enrichment_task):
+        for task in (
+            self._history_task,
+            self._startup_incident_task,
+            self._incident_enrichment_task,
+            self._fill_latest_task,
+        ):
             if task is not None and not task.done():
                 task.cancel()
                 try:
@@ -317,18 +348,30 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         applied = False
         for profile in self.profiles.values():
             current = profile.latest_incident or {}
+            changed = False
             if broadcast or profile.is_relevant(incident):
+                applied = True
+                if (
+                    incident.get("_fallback")
+                    and current.get("id") == incident_id
+                    and not current.get("_fallback")
+                ):
+                    # Keep the complete API version we already have (e.g. restored).
+                    continue
                 if current.get("id") != incident_id:
                     profile.previous_incident = profile.latest_incident
                 profile.latest_incident = incident
-                if profile.statistics.record_incident(
+                changed = profile.statistics.record_incident(
                     incident, self._current_user, self.person_name, self.skill_map
-                ):
-                    await profile.statistics.async_save()
-                applied = True
+                )
             elif current.get("id") == incident_id and current.get("_fallback"):
                 # The API shows this alarm was not for this function after all.
                 profile.latest_incident = profile.previous_incident
+            else:
+                continue
+            # Remember the incident so the function's sensors survive a restart.
+            if profile.statistics.set_latest_incident(profile.latest_incident) or changed:
+                await profile.statistics.async_save()
         return applied
 
     def _fallback_incident(self, incident_id: int, state: State | None) -> dict[str, Any] | None:
@@ -409,6 +452,52 @@ class BrandweerRoosterCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if self._incident_enrichment_id == incident_id:
                 self._incident_enrichment_task = None
                 self._incident_enrichment_id = None
+
+    async def _async_fill_latest_from_history(self) -> None:
+        """Give functions without a stored latest incident the most recent one from the API.
+
+        Runs once after updating from a version that didn't store it (or for a
+        new function). The incident is shown, not announced as new and not
+        counted again (the history sync records statistics).
+        """
+        missing = [profile for profile in self.profiles.values() if profile.latest_incident is None]
+        candidates: dict[str, dict[str, Any]] = {}
+        try:
+            for page in range(1, FILL_LATEST_MAX_PAGES + 1):
+                if page > 1:
+                    await asyncio.sleep(HISTORY_PAGE_DELAY)
+                incidents = await self.api.async_get_incidents(per_page=HISTORY_PAGE_SIZE, page=page)
+                for incident in incidents:
+                    for profile in missing:
+                        best = candidates.get(profile.subentry_id)
+                        if profile.is_relevant(incident) and (best is None or _newer(incident, best)):
+                            candidates[profile.subentry_id] = incident
+                if not incidents or all(profile.subentry_id in candidates for profile in missing):
+                    break
+            details: dict[Any, dict[str, Any]] = {}
+            for subentry_id, incident in candidates.items():
+                profile = self.profiles[subentry_id]
+                if profile.latest_incident is not None:
+                    continue  # a live incident arrived meanwhile
+                key = incident.get("id")
+                if key not in details:
+                    await asyncio.sleep(HISTORY_DETAIL_DELAY)
+                    details[key] = await self.api.async_get_incident(int(key))
+                if profile.latest_incident is not None:
+                    continue
+                profile.latest_incident = details[key]
+                if (restored_id := incident_id(details[key])) is not None:
+                    profile.restored_ids.add(restored_id)
+                if profile.statistics.set_latest_incident(details[key]):
+                    await profile.statistics.async_save()
+        except BrandweerRoosterAuthenticationError:
+            self._start_reauth()
+            return
+        except BrandweerRoosterApiError as err:
+            _LOGGER.debug("Laatste incident per functie kon niet uit de historie worden gehaald: %s", err)
+            return
+        if candidates:
+            self.async_set_updated_data(self._build_data())
 
     # ------------------------------------------------------------------
     # Statistics

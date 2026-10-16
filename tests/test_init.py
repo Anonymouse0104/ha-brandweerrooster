@@ -230,6 +230,64 @@ async def test_two_profiles(hass: HomeAssistant, mock_api) -> None:
     assert await hass.config_entries.async_unload(entry.entry_id)
 
 
+async def test_restart_keeps_latest_incident_per_function(hass: HomeAssistant, mock_api, config_entry) -> None:
+    """After a restart a function keeps its own latest incident, even when
+    FireServiceRota now shows an incident of another station."""
+    hass.states.async_set("sensor.incidents", "P 1 BR woning", {"id": 3010161})
+    await _setup(hass, config_entry)
+    latest = _entity_id(hass, "sensor", "latest_incident")
+    event = _entity_id(hass, "event", "new_incident")
+    assert hass.states.get(latest).state == "Incident 3010161"
+    assert hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal")).state == "1"
+    event_before = hass.states.get(event)
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    # Restart: FireServiceRota now shows an incident in Maastricht (group 300).
+    mock_api["incident"].return_value = make_incident(77, group=300)
+    hass.states.async_set("sensor.incidents", "P 1 Maastricht", {"id": 77})
+    assert await hass.config_entries.async_setup(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    state = hass.states.get(latest)
+    assert state.state == "Incident 3010161"
+    assert state.attributes["personeel"]  # the enriched API version, not a fallback
+    assert hass.states.get(_entity_id(hass, "sensor", "last_alarm")).state != "Nog geen alarmering"
+    assert hass.states.get(_entity_id(hass, "sensor", "crew")).state == "2"
+    assert hass.states.get(_entity_id(hass, "sensor", "uitrukbericht")).attributes["bericht"]
+    # Not announced again, not counted again.
+    assert hass.states.get(event).state == event_before.state
+    assert hass.states.get(_entity_id(hass, "sensor", "uitrukken_totaal")).state == "1"
+    # The other incident was fetched but is not this function's.
+    assert _profile(config_entry).latest_incident["id"] == 3010161
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+
+
+async def test_latest_incident_filled_from_history(hass: HomeAssistant, mock_api, config_entry) -> None:
+    """Nothing stored yet (first start after the update): take the most recent
+    relevant incident from the API, without an event."""
+    by_id = {77: make_incident(77, group=300), 60: make_incident(60, group=100), 59: make_incident(59, group=100)}
+    by_id[59]["created_at"] = "2026-03-01T10:00:00Z"
+    mock_api["incidents"].return_value = [by_id[77], by_id[60], by_id[59]]
+
+    async def get_incident(number: int) -> dict:
+        return by_id[number]
+
+    mock_api["incident"].side_effect = get_incident
+    hass.states.async_set("sensor.incidents", "P 1 Maastricht", {"id": 77})
+    with (
+        patch("custom_components.brandweerrooster.coordinator.HISTORY_DETAIL_DELAY", 0),
+        patch("custom_components.brandweerrooster.coordinator.HISTORY_PAGE_DELAY", 0),
+    ):
+        await _setup(hass, config_entry)
+        await hass.async_block_till_done(wait_background_tasks=True)
+
+    assert hass.states.get(_entity_id(hass, "sensor", "latest_incident")).state == "Incident 60"
+    assert hass.states.get(_entity_id(hass, "event", "new_incident")).state == "unknown"
+    assert _profile(config_entry).statistics.latest_incident["id"] == 60
+    assert await hass.config_entries.async_unload(config_entry.entry_id)
+
+
 async def test_migration_from_single_entry(hass: HomeAssistant, mock_api, legacy_entry) -> None:
     legacy_entry.add_to_hass(hass)
     ent_reg = er.async_get(hass)

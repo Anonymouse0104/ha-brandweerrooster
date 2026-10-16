@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.3
+
+### Fixes
+- **A function lost its latest incident after a restart.**
+  - Cause: at startup only the incident currently in the FireServiceRota sensor was loaded. When that incident belonged to another function or station, the function's sensors showed *Geen incident* / *Nog geen alarmering*, while the *Nieuw incident* event still showed the last incident.
+  - The latest incident of each function is now stored, including later enrichment (crew, responses), and restored before the first refresh. A FireServiceRota fallback never replaces the stored API version of the same incident.
+  - A restored incident is not announced again (no new *Nieuw incident* event) and is not counted twice.
+- **First start after updating:** a function without a stored incident takes its most recent relevant incident from the Brandweerrooster history once, also without an event.
+
 ## 1.5.2
 
 ### No more "unknown" before the first alarm

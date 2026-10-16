@@ -43,6 +43,9 @@ class Profile:
         # restored when the API shows the alarm wasn't for this profile.
         self.previous_incident: dict[str, Any] | None = None
         self.counts: dict[str, Any] = {}
+        # Incidents shown again after a restart (or filled in from history);
+        # the event entity must not announce them as new.
+        self.restored_ids: set[int] = set()
 
     @property
     def station_group_id(self) -> int:
