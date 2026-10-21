@@ -29,7 +29,58 @@ TO_REDACT = {
     "last_name",
     "access_token",
     "refresh_token",
+    # Per-person identifiers and data anywhere in the payload.
+    "user_id",
+    "membership_id",
+    "user_photo",
+    "complainant_name",
+    "notes",
+    "location",
 }
+
+# Only these fields of each crew member's response / assignment are kept; the
+# rest (account and membership ids, photo, GPS location, ETA, response times)
+# identifies colleagues and is dropped.
+_RESPONSE_FIELDS = (
+    "status",
+    "reported_status",
+    "channel",
+    "group_id",
+    "assigned_skill_ids",
+    "active_duty_function_ids",
+    "original_rank_id",
+    "performed_rank_id",
+    "on_duty",
+    "available_at_incident_creation",
+    "group_available_at_incident_creation",
+    "arrived_at_station",
+    "times_overridden",
+)
+_ASSIGNMENT_FIELDS = ("skill_ids",)
+
+
+def _crew_list(items: Any, fields: tuple[str, ...], user_id: Any) -> list[dict[str, Any]]:
+    """Strip a crew list to non-personal fields; mark only whether an item is yours."""
+    result: list[dict[str, Any]] = []
+    for item in items if isinstance(items, list) else []:
+        if not isinstance(item, dict):
+            continue
+        kept = {key: item[key] for key in fields if key in item}
+        kept["jij"] = user_id is not None and str(item.get("user_id")) == str(user_id)
+        result.append(kept)
+    return result
+
+
+def redact_incident(incident: dict[str, Any], user_id: Any) -> dict[str, Any]:
+    """An incident for a diagnostics file that may be attached to a public issue."""
+    if not incident:
+        return {}
+    data = dict(incident)
+    data["incident_responses"] = _crew_list(data.get("incident_responses"), _RESPONSE_FIELDS, user_id)
+    data["incident_skill_assignments"] = _crew_list(
+        data.get("incident_skill_assignments"), _ASSIGNMENT_FIELDS, user_id
+    )
+    return async_redact_data(data, TO_REDACT)
 
 
 def _jsonable_counts(counts: dict[str, Any]) -> dict[str, Any]:
@@ -54,7 +105,7 @@ async def async_get_config_entry_diagnostics(
             "crew_min_size": profile.crew_min_size,
             "legacy_ids": profile.unique_prefix == entry.entry_id,
             "latest_incident_keys": sorted(str(key) for key in incident),
-            "latest_incident": async_redact_data(incident, TO_REDACT),
+            "latest_incident": redact_incident(incident, coordinator.current_user.get("id")),
             "unknown_vehicle_codes": coordinator.unknown_vehicle_codes(incident),
             "statistics": {
                 "history_complete": profile.statistics.initialized,

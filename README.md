@@ -110,7 +110,7 @@ No entity shows *unknown* or *unavailable* just because there hasn't been an ala
 
 ### Privacy
 
-Crew names and response lists are shown on the entities but are **not stored in the recorder database**. The user sensor exposes only name and ID. For troubleshooting use **Download diagnostics** on the integration page; passwords, e-mail addresses and names are redacted there.
+Crew names and response lists are shown on the entities but are **not stored in the recorder database**. The user sensor exposes only name and ID. For troubleshooting use **Download diagnostics** on the integration page. It is safe to attach to a public issue: passwords, e-mail addresses and names are redacted, and the crew lists of an incident only keep non-personal fields (status, group, roles) plus whether an entry is yours - no account or membership ids, photos, locations or response times of colleagues.
 
 ## Incident event and automations
 

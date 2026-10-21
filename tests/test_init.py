@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from unittest.mock import patch
 
@@ -130,6 +131,20 @@ async def test_setup_and_new_incident(hass: HomeAssistant, mock_api, config_entr
     diagnostics = await async_get_config_entry_diagnostics(hass, config_entry)
     assert diagnostics["entry"]["data"]["password"] == "**REDACTED**"
     assert diagnostics["profiles"]["TS Echt"]["statistics"]["recorded_incidents"] == 1
+
+    # Nothing in the diagnostics identifies a colleague (or you): no account or
+    # membership ids, names, photos or locations of the crew.
+    incident = diagnostics["profiles"]["TS Echt"]["latest_incident"]
+    responses = incident["incident_responses"]
+    assert [r["jij"] for r in responses] == [True, False, False]
+    assert responses[1] == {"status": "acknowledged", "reported_status": "dispatched", "jij": False}
+    assert incident["incident_skill_assignments"] == [{"skill_ids": [1], "jij": True}, {"skill_ids": [2], "jij": False}]
+    dumped = json.dumps(diagnostics, default=str)
+    for secret in (
+        '"user_id"', "membership_id", "user_photo", "estimated_time_of_arrival",
+        "Jan Jansen", "Piet", "Klaas", "Melder Naam", "jan@example.com", "geheim",
+    ):
+        assert secret not in dumped, secret
 
     assert await hass.config_entries.async_unload(config_entry.entry_id)
 

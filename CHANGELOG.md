@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.5.4
+
+### Privacy
+- **Download diagnostics** no longer contains personal data of colleagues. Before, the Brandweerrooster account ids (`user_id`) of the whole crew ended up in the file, which the README suggests attaching to a public issue.
+  - The crew lists of an incident (`incident_responses`, `incident_skill_assignments`) now only keep non-personal fields: status, group, roles and on-duty flags, plus `jij` (whether the entry is yours).
+  - Account and membership ids, names, photos, GPS locations, estimated arrival times and response times are removed.
+- `user_id`, `membership_id`, `user_photo`, `location`, `complainant_name` and control-room `notes` are also redacted anywhere else in the diagnostics.
+
 ## 1.5.3
 
 ### Fixes

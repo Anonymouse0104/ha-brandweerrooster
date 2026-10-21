@@ -38,8 +38,13 @@ def make_incident(incident_id: int = 3010161, *, assigned: bool = True, group: i
         "groups": [group],
         "task_ids": [11],
         "address": {"latitude": 51.1, "longitude": 5.87, "formatted_address": "Kerkstraat 1, Echt"},
+        "complainant_name": "Melder Naam",
         "incident_responses": [
-            {"id": 1, "user_id": 7, "user_name": "Jan Jansen", "status": "acknowledged", "reported_status": "unknown"},
+            {
+                "id": 1, "user_id": 7, "membership_id": 70, "user_name": "Jan Jansen", "user_photo": {"url": "x"},
+                "location": {"latitude": 51.0, "longitude": 5.8}, "estimated_time_of_arrival": 4.5,
+                "status": "acknowledged", "reported_status": "unknown",
+            },
             {"id": 2, "user_id": 8, "user_name": "Piet", "status": "acknowledged", "reported_status": "dispatched"},
             {"id": 3, "user_id": 9, "user_name": "Klaas", "status": "rejected", "reported_status": "unknown"},
         ],
@@ -47,8 +52,8 @@ def make_incident(incident_id: int = 3010161, *, assigned: bool = True, group: i
     }
     if assigned:
         incident["incident_skill_assignments"] = [
-            {"user_id": 7, "skill_ids": [1]},
-            {"user_id": 8, "skill_ids": [2]},
+            {"id": 501, "user_id": 7, "membership_id": 70, "skill_ids": [1]},
+            {"id": 502, "user_id": 8, "membership_id": 80, "skill_ids": [2]},
         ]
     return incident
 
