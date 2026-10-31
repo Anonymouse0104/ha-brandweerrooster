@@ -2,6 +2,8 @@
 
 Unofficial Home Assistant custom integration for the Brandweerrooster API v2. This project is **not affiliated with, endorsed by, or an official integration from Brandweerrooster**.
 
+[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Anonymouse0104&repository=ha-brandweerrooster&category=integration) [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/anonymouse0501)
+
 Everything is configured from the Home Assistant UI — you never have to create or edit YAML files.
 
 ## What it does
